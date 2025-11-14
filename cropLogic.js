@@ -8,7 +8,7 @@ function loadImageFile(file) {
 
   assert(file instanceof File, "loadImageFile: not a File object");
 
-  renderLoadingView(); // Provide immediate feedback
+  renderLoadingView();
 
   const hadPrev = !!state.image;
   const prev = hadPrev
@@ -27,7 +27,7 @@ function loadImageFile(file) {
   reader.onerror = () => {
     console.error("loadImageFile: FileReader error", reader.error);
     alert("Failed to read file");
-    initAppView(); // Go back to start on error
+    initAppView();
   };
 
   reader.onload = (e) => {
@@ -36,7 +36,7 @@ function loadImageFile(file) {
     img.onerror = () => {
       console.error("loadImageFile: Image load error");
       alert("Failed to load image");
-      initAppView(); // Go back to start on error
+      initAppView();
     };
 
     img.onload = () => {
@@ -72,7 +72,12 @@ function loadImageFile(file) {
           state.commitTimer = null;
         }
 
-        renderCropView(); // This now happens only once everything is ready
+        renderCropView();
+
+        requestAnimationFrame(() => {
+          fitImageToViewport();
+          requestRender();
+        });
       };
 
       if (maxDim > PREVIEW_MAX_DIM) {
@@ -227,7 +232,7 @@ function resetCrop() {
   resetCropToFull(targetImg);
   validateCrop(state.crop);
   clearAllSelections();
-  zoomToFit(true); // Force immediate fit
+  zoomToFit(true);
   scheduleCommit();
 }
 

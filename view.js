@@ -60,7 +60,6 @@ function renderCropView() {
   onViewportResize();
 }
 
-// Main HTML structure generation
 function createCropView() {
   return `
     <div class="viewport" id="viewport">
@@ -79,73 +78,70 @@ function createCropView() {
   `;
 }
 
-function createControlPanel() {
-  const fullW = state.fullImage?.naturalWidth || state.image.naturalWidth;
-  const fullH = state.fullImage?.naturalHeight || state.image.naturalHeight;
-  const srcText = `Src: ${fullW}×${fullH}`;
-
-  return `
-    <div class="control-panel">
-        <div class="panel-row">
-            ${createAspectButtons()}
-            ${createCustomAspectControl()}
-            <div class="divider"></div>
-            ${createTopCenterPresets()}
-            <div class="divider"></div>
-            ${createExportControls()}
-        </div>
-        <div class="panel-row">
-            <div class="info-bar">
-                <div id="src-info">${srcText}</div>
-                <div id="crop-info"></div>
-            </div>
-            <div class="divider"></div>
-            <button class="btn" onclick="toggleGrid()">Grid</button>
-            <div class="divider"></div>
-            ${createZoomControls()}
-            <div class="divider"></div>
-            <button class="btn" onclick="resetCrop()">Reset</button>
-            <button class="btn" onclick="newImage()">New</button>
-        </div>
-    </div>
-    `;
-}
-
-function createExportControls() {
-  return `
-    <div class="panel-row" style="gap: 4px;">
-        <div class="custom-input-group">
-            <input type="text" id="export-w" class="custom-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
-            <span>×</span>
-            <input type="text" id="export-h" class="custom-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
-        </div>
-        <button class="btn btn-primary" onclick="exportImage()">Export</button>
-        <div id="scale-indicator"></div>
-    </div>
-    `;
-}
-
-function createZoomControls() {
-  return `
-    <div class="panel-row">
-        <button class="btn" onclick="zoomToFit()">Fit</button>
-        <input type="range" id="zoom-slider" min="0" max="1000" step="1">
-        <div id="zoom-indicator">100%</div>
-        <button class="btn" onclick="zoomToActual()">100%</button>
-    </div>
-    `;
-}
-
 function createContextHud() {
   return `
     <div class="context-hud" id="context-hud">
         <div>
-            <div class="hud-label">Crop Dims</div>
-            <div class="hud-value" id="hud-crop-info"></div>
+            <div class="hud-label">Source</div>
+            <div class="hud-value" id="hud-src-info">—</div>
+        </div>
+        <div>
+            <div class="hud-label">Crop</div>
+            <div class="hud-value" id="hud-crop-info">—</div>
         </div>
         <div id="hud-scale-indicator"></div>
     </div>
-    `;
+  `;
+}
+
+function createControlPanel() {
+  return `
+    <div class="control-panel">
+        <div class="panel-row">
+            <div class="aspect-section">
+                ${createAspectButtons()}
+                ${createCustomAspectControl()}
+            </div>
+            <div class="divider"></div>
+            <div class="preset-section">
+                ${createTopCenterPresets()}
+            </div>
+            <div class="divider"></div>
+            <div class="export-section">
+                ${createExportControls()}
+            </div>
+        </div>
+        <div class="panel-row">
+            <div class="control-section">
+                <button class="btn" onclick="toggleGrid()">Grid</button>
+                ${createZoomControls()}
+                <button class="btn" onclick="resetCrop()">Reset</button>
+                <button class="btn" onclick="newImage()">New</button>
+            </div>
+        </div>
+    </div>
+  `;
+}
+
+function createExportControls() {
+  return `
+    <div class="custom-input-group">
+        <input type="text" id="export-w" class="custom-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
+        <span>×</span>
+        <input type="text" id="export-h" class="custom-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
+    </div>
+    <button class="btn btn-primary" onclick="exportImage()">Export</button>
+    <div id="scale-indicator"></div>
+  `;
+}
+
+function createZoomControls() {
+  return `
+    <button class="btn" onclick="zoomToFit()">Fit</button>
+    <input type="range" id="zoom-slider" min="0" max="1000" step="1">
+    <div id="zoom-indicator">100%</div>
+    <button class="btn" onclick="zoomToActual()">100%</button>
+  `;
 }
 
 function bindCropView() {
@@ -266,51 +262,40 @@ function renderFrame() {
   updateInfoDisplays();
   updatePresetTriggers();
   syncExportInputsToCrop();
-  updateAspectBar();
   updateZoomUI();
-  updateContextHud(overlay);
+}
+
+function updateAspectBar() {
+  // No-op in new layout - aspect buttons are static
 }
 
 function updateInfoDisplays() {
   const w = Math.round(state.crop.w);
   const h = Math.round(state.crop.h);
-  const cropText = `Crop: ${w}×${h}`;
-
-  const cropInfo = document.getElementById("crop-info");
-  if (cropInfo) cropInfo.textContent = cropText;
 
   const hudCropInfo = document.getElementById("hud-crop-info");
   if (hudCropInfo) hudCropInfo.textContent = `${w} × ${h}`;
 
-  updateScaleIndicator(); // This handles both indicators
-}
+  const hudSrcInfo = document.getElementById("hud-src-info");
+  if (hudSrcInfo) {
+    const fullW = state.fullImage?.naturalWidth || state.image.naturalWidth;
+    const fullH = state.fullImage?.naturalHeight || state.image.naturalHeight;
+    hudSrcInfo.textContent = `${fullW} × ${fullH}`;
+  }
 
-function updateContextHud(overlay) {
-  const hud = document.getElementById("context-hud");
-  if (!hud) return;
-
-  const rect = overlay.getBoundingClientRect();
-  const vp = state.viewport;
-  const isOffscreen =
-    rect.bottom < 0 || rect.top > vp.h || rect.right < 0 || rect.left > vp.w;
-
-  hud.classList.toggle("visible", isOffscreen);
-}
-
-function updateAspectBar() {
-  const aspectBar = document.getElementById("aspect-btns");
-  if (aspectBar)
-    aspectBar.innerHTML = createAspectButtons() + createCustomAspectControl();
+  updateScaleIndicator();
 }
 
 function renderGrid(gridCanvas, cropW, cropH) {
-  if (!state.showGrid || cropW <= 0 || cropH <= 0) {
-    gridCanvas.width = 0;
-    gridCanvas.height = 0;
+  if (!state.showGrid) {
+    gridCanvas.style.display = "none";
     return;
   }
-  gridCanvas.width = cropW;
-  gridCanvas.height = cropH;
+  gridCanvas.style.display = "block";
+  if (gridCanvas.width !== cropW || gridCanvas.height !== cropH) {
+    gridCanvas.width = cropW;
+    gridCanvas.height = cropH;
+  }
   const gctx = gridCanvas.getContext("2d");
   if (!gctx) return;
   gctx.clearRect(0, 0, cropW, cropH);

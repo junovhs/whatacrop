@@ -231,3 +231,34 @@ function applyAspectToCrop(ratio) {
   state.crop = { x: (imgW - w) / 2, y: (imgH - h) / 2, w, h };
   validateCrop(state.crop);
 }
+("use strict");
+
+function beginInteract() {
+  if (state.commitTimer) clearTimeout(state.commitTimer);
+  state.committing = false;
+  requestRender();
+}
+
+function applyAspectToCrop(ratio) {
+  const img = state.fullImage || state.image;
+  assert(img, "applyAspectToCrop: no image");
+  assert(ratio > 0, "applyAspectToCrop: ratio must be positive");
+  validateAspectRatio(ratio);
+
+  const imgW = img.naturalWidth;
+  const imgH = img.naturalHeight;
+  let w, h;
+  if (imgW / imgH > ratio) {
+    h = imgH;
+    w = h * ratio;
+  } else {
+    w = imgW;
+    h = w / ratio;
+  }
+
+  assert(w > 0 && w <= imgW, "applyAspectToCrop: invalid width");
+  assert(h > 0 && h <= imgH, "applyAspectToCrop: invalid height");
+
+  state.crop = { x: (imgW - w) / 2, y: (imgH - h) / 2, w, h };
+  validateCrop(state.crop);
+}

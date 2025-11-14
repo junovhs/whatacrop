@@ -8,7 +8,7 @@ function createTopCenterPresets() {
       <div class="preset-dropdown">
         <div
           id="preset-social-trigger"
-          class="preset-trigger"
+          class="preset-trigger btn"
           onclick="togglePresetMenu(event, 'social')">
           <span>${state.presetLabels.social}</span><span>▾</span>
         </div>
@@ -20,7 +20,7 @@ function createTopCenterPresets() {
       <div class="preset-dropdown">
         <div
           id="preset-docs-trigger"
-          class="preset-trigger"
+          class="preset-trigger btn"
           onclick="togglePresetMenu(event, 'docs')">
           <span>${state.presetLabels.docs}</span><span>▾</span>
         </div>
@@ -32,7 +32,7 @@ function createTopCenterPresets() {
       <div class="preset-dropdown">
         <div
           id="preset-custom-trigger"
-          class="preset-trigger ${state.customPixelActive ? "active pulsing" : ""}"
+          class="preset-trigger btn ${state.customPixelActive ? "active pulsing" : ""}"
           onclick="toggleCustomPixelActive(event)">
           <span>${state.presetLabels["custom-pixel"]}</span><span>▾</span>
         </div>

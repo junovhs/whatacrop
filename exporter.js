@@ -4,12 +4,10 @@ function onExportInput(dim, val) {
   if (!state.image || !state.crop.w || !state.crop.h) return;
   assert(dim === "w" || dim === "h", "onExportInput: invalid dimension");
 
-  // Allow empty string to clear the input
   const cleanVal = val.trim();
 
   if (state.mode === MODE.PIXEL_PRESET) {
     setMode(MODE.CUSTOM_PIXEL);
-    clearAllSelections(false); // Preserve custom pixel values
   }
 
   let w = parseInt(state.exportW, 10) || 0;
