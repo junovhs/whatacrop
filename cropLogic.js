@@ -15,8 +15,8 @@ function loadImageFile(file) {
         y: state.crop.y,
         w: state.crop.w,
         h: state.crop.h,
-        imgW: state.image.naturalWidth,
-        imgH: state.image.naturalHeight,
+        imgW: state.fullImage?.naturalWidth || state.image.naturalWidth,
+        imgH: state.fullImage?.naturalHeight || state.image.naturalHeight,
       }
     : null;
 
@@ -50,16 +50,16 @@ function loadImageFile(file) {
       const fullImage = img;
       const maxDim = Math.max(fullImage.naturalWidth, fullImage.naturalHeight);
 
-      // Helper to finish setup with the display image
       const finishLoad = (displayImage, scale) => {
         state.fullImage = fullImage;
         state.image = displayImage;
         state.previewScale = scale;
 
+        // FIXED: Initialize crop in full image coordinates
         if (hadPrev && prev && prev.imgW > 0 && prev.imgH > 0) {
-          preserveRelativeCrop(prev, displayImage);
+          preserveRelativeCrop(prev, fullImage);
         } else {
-          resetCropToFull(displayImage);
+          resetCropToFull(fullImage);
         }
 
         clearAllSelections();
@@ -215,11 +215,13 @@ function resetCrop() {
 
   beginInteract();
 
+  // FIXED: Use fullImage if available
+  const targetImg = state.fullImage || state.image;
   state.crop = {
     x: 0,
     y: 0,
-    w: state.image.naturalWidth,
-    h: state.image.naturalHeight,
+    w: targetImg.naturalWidth,
+    h: targetImg.naturalHeight,
   };
 
   validateCrop(state.crop);
@@ -237,8 +239,8 @@ function newImage() {
   }
 
   state.image = null;
-  state.fullImage = null; // NEW: Clear full-res reference
-  state.previewScale = 1; // NEW: Reset scale
+  state.fullImage = null;
+  state.previewScale = 1;
   clearAllSelections();
   state.committing = false;
 

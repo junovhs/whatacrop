@@ -68,7 +68,7 @@ function renderCropView() {
 function createCropView() {
   const img = state.image;
 
-  // NEW: Show full resolution, not preview resolution
+  // FIXED: Show full resolution, not preview resolution
   const fullW = state.fullImage?.naturalWidth || img.naturalWidth;
   const fullH = state.fullImage?.naturalHeight || img.naturalHeight;
   const srcText = `Src: ${fullW}×${fullH}`;
