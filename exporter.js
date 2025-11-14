@@ -176,7 +176,7 @@ function exportImage() {
     return;
   }
 
-  // FIXED: Convert crop coordinates from preview space to full-res space
+  // Convert crop coordinates from preview space to full-res space
   const scale = state.previewScale || 1;
   const srcX = state.crop.x / scale;
   const srcY = state.crop.y / scale;

@@ -68,7 +68,7 @@ function renderCropView() {
 function createCropView() {
   const img = state.image;
 
-  // FIXED: Show full resolution, not preview resolution
+  // Show full resolution, not preview resolution
   const fullW = state.fullImage?.naturalWidth || img.naturalWidth;
   const fullH = state.fullImage?.naturalHeight || img.naturalHeight;
   const srcText = `Src: ${fullW}×${fullH}`;
@@ -236,14 +236,21 @@ function renderFrame() {
 
   const { scale, tx, ty } = state.imageTransform;
   const { x, y, w, h } = state.crop;
+  const previewScale = state.previewScale; // ADD THIS
 
   canvas.style.transformOrigin = "0 0";
   canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
 
-  const cropLeft = tx + x * scale;
-  const cropTop = ty + y * scale;
-  const cropW = w * scale;
-  const cropH = h * scale;
+  // FIXED: Scale crop coordinates from full-res to preview space first
+  const previewX = x * previewScale;
+  const previewY = y * previewScale;
+  const previewW = w * previewScale;
+  const previewH = h * previewScale;
+
+  const cropLeft = tx + previewX * scale;
+  const cropTop = ty + previewY * scale;
+  const cropW = previewW * scale;
+  const cropH = previewH * scale;
 
   overlay.style.left = `${cropLeft}px`;
   overlay.style.top = `${cropTop}px`;

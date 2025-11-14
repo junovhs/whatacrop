@@ -9,7 +9,7 @@ const MAX_CANVAS_DIM = 16384;
 const EPSILON = 0.001;
 const MAX_ASPECT_VALUE = 100;
 const MAX_PIXEL_DIM = 50000;
-const PREVIEW_MAX_DIM = 4096; // NEW: Max preview dimension for smooth UI
+const PREVIEW_MAX_DIM = 4096; // Max preview dimension for smooth UI
 
 const MODE = {
   NONE: "none",
@@ -20,8 +20,8 @@ const MODE = {
 
 const state = {
   image: null,
-  fullImage: null, // NEW: Original full-resolution image
-  previewScale: 1, // NEW: Scale factor (full / preview)
+  fullImage: null, // Original full-resolution image
+  previewScale: 1, // Scale factor (full / preview)
   crop: { x: 0, y: 0, w: 0, h: 0 },
   viewport: { w: 0, h: 0 },
   imageTransform: { scale: 1, tx: 0, ty: 0 },
