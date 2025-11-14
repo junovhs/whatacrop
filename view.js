@@ -67,9 +67,12 @@ function renderCropView() {
 
 function createCropView() {
   const img = state.image;
-  const crop = state.crop;
-  const srcText = `Src: ${img.naturalWidth}×${img.naturalHeight}`;
-  const cropText = `Crop: ${Math.round(crop.w)}×${Math.round(crop.h)}`;
+
+  // NEW: Show full resolution, not preview resolution
+  const fullW = state.fullImage?.naturalWidth || img.naturalWidth;
+  const fullH = state.fullImage?.naturalHeight || img.naturalHeight;
+  const srcText = `Src: ${fullW}×${fullH}`;
+  const cropText = `Crop: ${Math.round(state.crop.w)}×${Math.round(state.crop.h)}`;
 
   return `
     <div class="viewport" id="viewport">

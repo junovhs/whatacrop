@@ -1,4 +1,3 @@
-// FILE: crop/exporter.js
 "use strict";
 
 function onExportInput(dim, val) {
@@ -177,10 +176,22 @@ function exportImage() {
     return;
   }
 
-  const { x, y, w: cw, h: ch } = state.crop;
+  // NEW: Convert crop coordinates from preview space to full-res space
+  const scale = state.previewScale || 1;
+  const srcX = state.crop.x / scale;
+  const srcY = state.crop.y / scale;
+  const srcW = state.crop.w / scale;
+  const srcH = state.crop.h / scale;
+
+  // Clamp to handle floating-point edge cases
+  const fullImg = state.fullImage || state.image;
+  const maxX = Math.max(0, fullImg.naturalWidth - srcW);
+  const maxY = Math.max(0, fullImg.naturalHeight - srcH);
+  const clampedX = clamp(srcX, 0, maxX);
+  const clampedY = clamp(srcY, 0, maxY);
 
   ctx.clearRect(0, 0, w, h);
-  ctx.drawImage(state.image, x, y, cw, ch, 0, 0, w, h);
+  ctx.drawImage(fullImg, clampedX, clampedY, srcW, srcH, 0, 0, w, h);
 
   offCanvas.toBlob(
     (blob) => {

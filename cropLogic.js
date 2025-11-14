@@ -1,4 +1,3 @@
-// FILE: crop/cropLogic.js
 "use strict";
 
 function loadImageFile(file) {
@@ -48,25 +47,57 @@ function loadImageFile(file) {
         "loadImageFile: image height exceeds max",
       );
 
-      state.image = img;
+      const fullImage = img;
+      const maxDim = Math.max(fullImage.naturalWidth, fullImage.naturalHeight);
 
-      if (hadPrev && prev && prev.imgW > 0 && prev.imgH > 0) {
-        preserveRelativeCrop(prev, img);
-      } else {
-        resetCropToFull(img);
+      // Helper to finish setup with the display image
+      const finishLoad = (displayImage, scale) => {
+        state.fullImage = fullImage;
+        state.image = displayImage;
+        state.previewScale = scale;
+
+        if (hadPrev && prev && prev.imgW > 0 && prev.imgH > 0) {
+          preserveRelativeCrop(prev, displayImage);
+        } else {
+          resetCropToFull(displayImage);
+        }
+
+        clearAllSelections();
+        state.committing = false;
+        if (state.commitTimer) {
+          clearTimeout(state.commitTimer);
+          state.commitTimer = null;
+        }
+
+        renderCropView();
+        fitImageToViewport();
+        requestRender();
+      };
+
+      // Create preview if image is too large
+      if (maxDim > PREVIEW_MAX_DIM) {
+        const scale = PREVIEW_MAX_DIM / maxDim;
+        const previewW = Math.round(fullImage.naturalWidth * scale);
+        const previewH = Math.round(fullImage.naturalHeight * scale);
+
+        const previewCanvas = document.createElement("canvas");
+        previewCanvas.width = previewW;
+        previewCanvas.height = previewH;
+        const pctx = previewCanvas.getContext("2d");
+        pctx.drawImage(fullImage, 0, 0, previewW, previewH);
+
+        const previewImg = new Image();
+        previewImg.onload = () => finishLoad(previewImg, scale);
+        previewImg.onerror = () => {
+          console.error("loadImageFile: Preview creation failed");
+          alert("Failed to process large image");
+        };
+        previewImg.src = previewCanvas.toDataURL("image/png");
+        return; // Wait for preview
       }
 
-      clearAllSelections();
-      state.committing = false;
-
-      if (state.commitTimer) {
-        clearTimeout(state.commitTimer);
-        state.commitTimer = null;
-      }
-
-      renderCropView();
-      fitImageToViewport();
-      requestRender();
+      // Use full image directly
+      finishLoad(fullImage, 1);
     };
 
     img.src = e.target.result;
@@ -206,6 +237,8 @@ function newImage() {
   }
 
   state.image = null;
+  state.fullImage = null; // NEW: Clear full-res reference
+  state.previewScale = 1; // NEW: Reset scale
   clearAllSelections();
   state.committing = false;
 
