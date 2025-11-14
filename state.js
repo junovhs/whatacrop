@@ -10,6 +10,8 @@ const EPSILON = 0.001;
 const MAX_ASPECT_VALUE = 100;
 const MAX_PIXEL_DIM = 50000;
 const PREVIEW_MAX_DIM = 4096; // Max preview dimension for smooth UI
+const MIN_ZOOM = 0.1; // 10%
+const MAX_ZOOM = 32.0; // 3200%
 
 const MODE = {
   NONE: "none",
@@ -20,11 +22,13 @@ const MODE = {
 
 const state = {
   image: null,
-  fullImage: null, // Original full-resolution image
-  previewScale: 1, // Scale factor (full / preview)
+  fullImage: null,
+  previewScale: 1,
   crop: { x: 0, y: 0, w: 0, h: 0 },
   viewport: { w: 0, h: 0 },
-  imageTransform: { scale: 1, tx: 0, ty: 0 },
+  imageTransform: { tx: 0, ty: 0 },
+  baseScale: 1, // The scale required to fit the image to the viewport
+  zoom: 1, // The user-controlled zoom multiplier
   drag: null,
   committing: false,
   commitTimer: null,
@@ -123,16 +127,10 @@ function markPresetActive(key, label) {
 
   if (key === "social") {
     state.presetLabels.social = label;
-    state.presetLabels.docs = "Documents";
-    state.presetLabels["custom-pixel"] = "Custom Pixels";
   } else if (key === "docs") {
     state.presetLabels.docs = label;
-    state.presetLabels.social = "Social Media";
-    state.presetLabels["custom-pixel"] = "Custom Pixels";
   } else if (key === "custom-pixel") {
     state.presetLabels["custom-pixel"] = label;
-    state.presetLabels.social = "Social Media";
-    state.presetLabels.docs = "Documents";
   }
 }
 
@@ -151,8 +149,8 @@ function validateCrop(crop) {
   assert(typeof crop.y === "number", "validateCrop: y must be number");
   assert(typeof crop.w === "number", "validateCrop: w must be number");
   assert(typeof crop.h === "number", "validateCrop: h must be number");
-  assert(crop.x >= 0, "validateCrop: x must be >= 0");
-  assert(crop.y >= 0, "validateCrop: y must be >= 0");
+  assert(crop.x >= -EPSILON, "validateCrop: x must be >= 0");
+  assert(crop.y >= -EPSILON, "validateCrop: y must be >= 0");
   assert(crop.w >= MIN_CROP, "validateCrop: w must be >= MIN_CROP");
   assert(crop.h >= MIN_CROP, "validateCrop: h must be >= MIN_CROP");
   return true;

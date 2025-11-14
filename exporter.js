@@ -1,48 +1,45 @@
 "use strict";
 
 function onExportInput(dim, val) {
-  if (!state.image || !state.crop.w || !state.crop.h) {
-    console.warn("onExportInput: no valid crop");
-    return;
-  }
-
+  if (!state.image || !state.crop.w || !state.crop.h) return;
   assert(dim === "w" || dim === "h", "onExportInput: invalid dimension");
   assert(typeof val === "string", "onExportInput: val must be string");
 
+  // If user edits dimensions while a fixed preset is active,
+  // gracefully switch them to a custom pixel mode.
+  if (state.mode === MODE.PIXEL_PRESET) {
+    setMode(MODE.CUSTOM_PIXEL);
+  }
+
   let w = parseInt(state.exportW, 10) || Math.round(state.crop.w);
   let h = parseInt(state.exportH, 10) || Math.round(state.crop.h);
-
   const nv = parseInt(val, 10);
-  if (!(nv > 0)) {
-    console.warn("onExportInput: invalid value");
-    return;
-  }
+  if (!(nv > 0)) return;
 
   if (dim === "w") w = nv;
   else h = nv;
 
-  if (w > MAX_PIXEL_DIM || h > MAX_PIXEL_DIM) {
-    console.warn("onExportInput: dimension exceeds max");
-    return;
-  }
+  if (w > MAX_PIXEL_DIM || h > MAX_PIXEL_DIM) return;
 
-  if (
+  // Recalculate the other dimension if aspect is locked
+  const aspectIsLocked =
     state.mode === MODE.ASPECT_RATIO ||
     state.mode === MODE.PIXEL_PRESET ||
-    state.mode === MODE.CUSTOM_PIXEL
-  ) {
+    state.mode === MODE.CUSTOM_PIXEL;
+  if (aspectIsLocked) {
     const r = state.aspectRatio || getCropAspect() || 1;
     validateAspectRatio(r);
-
-    if (dim === "w") {
-      h = Math.round(w / r);
-    } else {
-      w = Math.round(h * r);
-    }
+    if (dim === "w") h = Math.round(w / r);
+    else w = Math.round(h * r);
   }
 
   state.exportW = String(w);
   state.exportH = String(h);
+
+  // Update the UI label for the custom preset
+  if (state.mode === MODE.CUSTOM_PIXEL) {
+    markPresetActive("custom-pixel", `Custom ${w}×${h}`);
+  }
 
   syncExportInputsToCrop();
   updateScaleIndicator();
@@ -51,40 +48,37 @@ function onExportInput(dim, val) {
 function syncExportInputsToCrop() {
   const ew = document.getElementById("export-w");
   const eh = document.getElementById("export-h");
-
   if (!ew || !eh) return;
   if (!state.crop.w || !state.crop.h) return;
 
   const cropW = Math.round(state.crop.w);
   const cropH = Math.round(state.crop.h);
-
   let w = parseInt(state.exportW, 10);
   let h = parseInt(state.exportH, 10);
 
-  if (state.mode === MODE.CUSTOM_PIXEL) {
+  // CORE FIX: For pixel presets, the export dimensions are FIXED and should NOT change.
+  if (state.mode === MODE.PIXEL_PRESET) {
+    w = parseInt(state.exportW, 10);
+    h = parseInt(state.exportH, 10);
+  } else if (state.mode === MODE.CUSTOM_PIXEL) {
     if (!(w > 0 && h > 0)) {
       w = cropW;
       h = cropH;
     }
-  } else if (
-    state.mode === MODE.PIXEL_PRESET ||
-    state.mode === MODE.ASPECT_RATIO
-  ) {
+  } else if (state.mode === MODE.ASPECT_RATIO) {
     const r = state.aspectRatio || getCropAspect() || 1;
-
     if (!(w > 0 && h > 0)) {
       w = cropW;
       h = Math.round(w / r);
     }
-
     if (w > cropW) w = cropW;
     h = Math.round(w / r);
-
     if (h > cropH) {
       h = cropH;
       w = Math.round(h * r);
     }
   } else {
+    // MODE.NONE
     w = cropW;
     h = cropH;
   }
@@ -93,7 +87,6 @@ function syncExportInputsToCrop() {
     w = cropW;
     h = cropH;
   }
-
   state.exportW = String(w);
   state.exportH = String(h);
   ew.value = w;
@@ -104,25 +97,21 @@ function updateScaleIndicator() {
   const el = document.getElementById("scale-indicator");
   if (!el) return;
 
-  if (state.mode !== MODE.CUSTOM_PIXEL) {
+  const showIndicator =
+    state.mode === MODE.CUSTOM_PIXEL || state.mode === MODE.PIXEL_PRESET;
+  if (!showIndicator) {
     el.className = "scale-indicator hidden";
     return;
   }
 
   const cropW = state.crop.w;
-  const cropH = state.crop.h;
   const w = parseInt(state.exportW, 10);
-  const h = parseInt(state.exportH, 10);
-
-  if (!(cropW > 0 && cropH > 0 && w > 0 && h > 0)) {
+  if (!(cropW > 0 && w > 0)) {
     el.className = "scale-indicator hidden";
     return;
   }
 
-  const scaleX = cropW / w;
-  const scaleY = cropH / h;
-  const scale = Math.min(scaleX, scaleY);
-
+  const scale = cropW / w;
   state.scaleFactor = scale;
 
   let level = "ok";
@@ -131,11 +120,11 @@ function updateScaleIndicator() {
   state.scaleLevel = level;
 
   const pct = (scale * 100).toFixed(0);
-  let text = `Scale: ${pct}%`;
+  let text = `${pct}%`;
 
-  if (level === "ok") text += " (good detail)";
-  else if (level === "warn") text += " (near native)";
-  else text += " (UPSCALING - may pixelate)";
+  if (level === "ok") text += " (Detail)";
+  else if (level === "warn") text += " (Native)";
+  else text += " (UPSCALING)";
 
   el.textContent = text;
   el.className = `scale-indicator ${level}`;
@@ -143,24 +132,18 @@ function updateScaleIndicator() {
 
 function exportImage() {
   if (!state.image) {
-    console.error("exportImage: no image");
     alert("No image loaded");
     return;
   }
-
   validateCrop(state.crop);
 
   const w = parseInt(state.exportW, 10) || Math.round(state.crop.w);
   const h = parseInt(state.exportH, 10) || Math.round(state.crop.h);
-
   if (!(w > 0 && h > 0)) {
-    console.error("exportImage: invalid dimensions");
     alert("Invalid export dimensions");
     return;
   }
-
   if (w > MAX_CANVAS_DIM || h > MAX_CANVAS_DIM) {
-    console.error("exportImage: dimensions exceed canvas max");
     alert(`Export dimensions exceed maximum (${MAX_CANVAS_DIM}px)`);
     return;
   }
@@ -168,22 +151,17 @@ function exportImage() {
   const offCanvas = document.createElement("canvas");
   offCanvas.width = w;
   offCanvas.height = h;
-
   const ctx = offCanvas.getContext("2d");
   if (!ctx) {
-    console.error("exportImage: failed to get context");
     alert("Failed to create export canvas");
     return;
   }
 
-  // Convert crop coordinates from preview space to full-res space
-  const scale = state.previewScale || 1;
-  const srcX = state.crop.x / scale;
-  const srcY = state.crop.y / scale;
-  const srcW = state.crop.w / scale;
-  const srcH = state.crop.h / scale;
+  const srcX = state.crop.x;
+  const srcY = state.crop.y;
+  const srcW = state.crop.w;
+  const srcH = state.crop.h;
 
-  // Clamp to handle floating-point edge cases
   const fullImg = state.fullImage || state.image;
   const maxX = Math.max(0, fullImg.naturalWidth - srcW);
   const maxY = Math.max(0, fullImg.naturalHeight - srcH);
@@ -196,22 +174,16 @@ function exportImage() {
   offCanvas.toBlob(
     (blob) => {
       if (!blob) {
-        console.error("exportImage: blob creation failed");
         alert("Failed to create image blob");
         return;
       }
-
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-
-      const filename = generateFilename(w, h);
       link.href = url;
-      link.download = filename;
-
+      link.download = generateFilename(w, h);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
       setTimeout(() => URL.revokeObjectURL(url), 100);
     },
     "image/png",

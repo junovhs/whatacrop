@@ -1,7 +1,8 @@
 "use strict";
 
 function moveCrop(next, dx, dy) {
-  const img = state.image;
+  // Always use the full-res image for boundary calculations
+  const img = state.fullImage || state.image;
   assert(img, "moveCrop: no image");
   assert(typeof dx === "number", "moveCrop: dx must be number");
   assert(typeof dy === "number", "moveCrop: dy must be number");
@@ -16,7 +17,8 @@ function moveCrop(next, dx, dy) {
 }
 
 function resizeCrop(next, start, handle, dx, dy) {
-  const img = state.image;
+  // Always use the full-res image for boundary calculations
+  const img = state.fullImage || state.image;
   assert(img, "resizeCrop: no image");
   assert(typeof handle === "string", "resizeCrop: handle must be string");
   assert(handle.length > 0, "resizeCrop: handle cannot be empty");
@@ -112,6 +114,7 @@ function resizeCornerLocked(next, start, handle, dx, dy, img, r) {
     w = img.naturalWidth - x;
     h = w / r;
     y = handle.includes("n") ? ay - h : ay;
+    x = handle.includes("w") ? img.naturalWidth - w : x;
   }
 
   // Check vertical bounds
@@ -124,12 +127,15 @@ function resizeCornerLocked(next, start, handle, dx, dy, img, r) {
   if (y + h > img.naturalHeight) {
     h = img.naturalHeight - y;
     w = h * r;
+    y = handle.includes("n") ? img.naturalHeight - h : y;
     x = handle.includes("w") ? ax - w : ax;
   }
 
   // Final enforcement of MIN_CROP
   w = Math.max(w, MIN_CROP);
   h = Math.max(h, MIN_CROP);
+  if (handle.includes("w")) x = ax - w;
+  if (handle.includes("n")) y = ay - h;
 
   if (!hasChanged(start, x, y, w, h)) return;
 
@@ -196,23 +202,12 @@ function resizeHorizontalEdge(handle, start, dx, cy, img, r, startRight) {
   const sign = handle === "e" ? 1 : -1;
   const potentialW = start.w + dx * sign;
 
-  // Calculate maximum allowed width based on X-axis constraints (the fixed edge)
   const maxW_X = handle === "e" ? img.naturalWidth - start.x : startRight;
-
-  // Calculate maximum allowed width based on Y-axis constraints (from the center)
   const maxW_Y = 2 * r * Math.min(cy, img.naturalHeight - cy);
-
-  // The actual maximum width is the most restrictive of the two
   const maxW = Math.min(maxW_X, maxW_Y);
-
-  // Calculate minimum allowed width (so both w and h are >= MIN_CROP)
   const minW = Math.max(MIN_CROP, MIN_CROP * r);
-
-  // Clamp the potential width to the calculated bounds
   const w = clamp(potentialW, minW, maxW);
   const h = w / r;
-
-  // Calculate final position based on the clamped dimensions
   const x = handle === "e" ? start.x : startRight - w;
   const y = cy - h / 2;
 
@@ -223,23 +218,12 @@ function resizeVerticalEdge(handle, start, dy, cx, img, r, startBottom) {
   const sign = handle === "s" ? 1 : -1;
   const potentialH = start.h + dy * sign;
 
-  // Calculate maximum allowed height based on Y-axis constraints (the fixed edge)
   const maxH_Y = handle === "s" ? img.naturalHeight - start.y : startBottom;
-
-  // Calculate maximum allowed height based on X-axis constraints (from the center)
   const maxH_X = (2 / r) * Math.min(cx, img.naturalWidth - cx);
-
-  // The actual maximum height is the most restrictive of the two
   const maxH = Math.min(maxH_X, maxH_Y);
-
-  // Calculate minimum allowed height (so both w and h are >= MIN_CROP)
   const minH = Math.max(MIN_CROP, MIN_CROP / r);
-
-  // Clamp the potential height to the calculated bounds
   const h = clamp(potentialH, minH, maxH);
   const w = h * r;
-
-  // Calculate final position based on the clamped dimensions
   const y = handle === "s" ? start.y : startBottom - h;
   const x = cx - w / 2;
 

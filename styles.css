@@ -19,6 +19,9 @@ body {
     width: 100vw;
     height: 100vh;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .drop-zone {
@@ -38,11 +41,21 @@ body {
     background: #111;
 }
 
+.loading-view {
+    color: #888;
+    font-size: 14px;
+}
+
 .viewport {
     width: 100%;
     height: 100%;
     position: relative;
     overflow: hidden;
+    cursor: grab;
+}
+
+.viewport:active {
+    cursor: grabbing;
 }
 
 .viewport canvas {
@@ -50,6 +63,12 @@ body {
     top: 0;
     left: 0;
     transform-origin: 0 0;
+    pointer-events: none; /* Allow viewport to capture mouse events */
+    /* For high-zoom performance */
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
 }
 
 .canvas-committing {
@@ -59,13 +78,17 @@ body {
 .crop-overlay {
     position: absolute;
     border: 2px solid #fff;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 0 0 9999px rgb(0 0 0);
     pointer-events: none;
     transition: box-shadow 0.2s ease-in-out;
 }
 
+.crop-overlay.dragging {
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8);
+}
+
 .crop-overlay.committing {
-    box-shadow: 0 0 0 9999px rgb(0, 0, 0);
+    box-shadow: 0 0 0 9999px rgb(0 0 0);
     transition:
         left 500ms cubic-bezier(0.33, 0, 0.17, 1),
         top 500ms cubic-bezier(0.33, 0, 0.17, 1),
@@ -81,13 +104,17 @@ body {
     pointer-events: auto;
 }
 
+.handle,
+.edge {
+    pointer-events: auto;
+}
+
 .handle {
     position: absolute;
     width: 14px;
     height: 14px;
     background: #fff;
     border: 2px solid #000;
-    pointer-events: auto;
 }
 
 .handle.nw {
@@ -95,19 +122,16 @@ body {
     left: -8px;
     cursor: nwse-resize;
 }
-
 .handle.ne {
     top: -8px;
     right: -8px;
     cursor: nesw-resize;
 }
-
 .handle.sw {
     bottom: -8px;
     left: -8px;
     cursor: nesw-resize;
 }
-
 .handle.se {
     bottom: -8px;
     right: -8px;
@@ -117,7 +141,6 @@ body {
 .edge {
     position: absolute;
     background: rgba(255, 255, 255, 0.7);
-    pointer-events: auto;
 }
 
 .edge.n,
@@ -128,11 +151,9 @@ body {
     transform: translateX(-50%);
     cursor: ns-resize;
 }
-
 .edge.n {
     top: -5px;
 }
-
 .edge.s {
     bottom: -5px;
 }
@@ -145,11 +166,9 @@ body {
     transform: translateY(-50%);
     cursor: ew-resize;
 }
-
 .edge.w {
     left: -5px;
 }
-
 .edge.e {
     right: -5px;
 }
@@ -160,43 +179,39 @@ body {
     pointer-events: none;
 }
 
-.top-left {
+.top-left,
+.top-center,
+.top-right,
+.bottom-center {
     position: absolute;
-    top: 12px;
-    left: 12px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    align-items: center;
 }
 
+.top-left {
+    top: 12px;
+    left: 12px;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+}
 .top-center {
-    position: absolute;
     top: 12px;
     left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
     gap: 8px;
 }
-
 .top-right {
-    position: absolute;
     top: 12px;
     right: 12px;
-    display: flex;
-    align-items: center;
     gap: 8px;
 }
-
 .bottom-center {
-    position: absolute;
     bottom: 12px;
     left: 50%;
     transform: translateX(-50%);
-    display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 8px;
+    gap: 12px;
 }
 
 .info {
@@ -205,10 +220,58 @@ body {
     font-size: 9px;
     color: #888;
 }
-
 .aspect-btns {
     display: flex;
     gap: 4px;
+}
+
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(26, 26, 26, 0.8);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    backdrop-filter: blur(4px);
+}
+
+.zoom-indicator {
+    font-size: 9px;
+    color: #ccc;
+    width: 40px;
+    text-align: center;
+    font-family: "Courier New", monospace;
+}
+#zoom-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 120px;
+    height: 4px;
+    background: #444;
+    outline: none;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    cursor: pointer;
+}
+#zoom-slider:hover {
+    opacity: 1;
+}
+#zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+}
+#zoom-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
 }
 
 .global-drop-hint {
@@ -227,11 +290,9 @@ body {
     transition: opacity 0.15s ease-in-out;
     z-index: 200;
 }
-
 .global-drop-hint.visible {
     opacity: 1;
 }
-
 .hidden {
     display: none !important;
 }
