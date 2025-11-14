@@ -60,55 +60,92 @@ function renderCropView() {
   onViewportResize();
 }
 
+// Main HTML structure generation
 function createCropView() {
-  const fullW = state.fullImage?.naturalWidth || state.image.naturalWidth;
-  const fullH = state.fullImage?.naturalHeight || state.image.naturalHeight;
-  const srcText = `Src: ${fullW}×${fullH}`;
-  const cropText = `Crop: ${Math.round(state.crop.w)}×${Math.round(state.crop.h)}`;
-
   return `
     <div class="viewport" id="viewport">
       <canvas id="canvas"></canvas>
       <div class="crop-overlay" id="crop-overlay">
         <div class="crop-area" id="crop-area"></div>
-        ${createHandles()}
-        ${createEdges()}
+        <div class="handle nw" data-handle="nw"></div><div class="handle ne" data-handle="ne"></div>
+        <div class="handle sw" data-handle="sw"></div><div class="handle se" data-handle="se"></div>
+        <div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div>
+        <div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>
         <canvas id="grid-canvas" class="grid-canvas"></canvas>
       </div>
     </div>
-    ${createTopLeft()}
-    ${createTopCenterPresets()}
-    ${createTopRight()}
-    ${createBottomCenter(srcText, cropText)}
+    ${createContextHud()}
+    ${createControlPanel()}
   `;
 }
 
-function createHandles() {
-  return `<div class="handle nw" data-handle="nw"></div><div class="handle ne" data-handle="ne"></div><div class="handle sw" data-handle="sw"></div><div class="handle se" data-handle="se"></div>`;
-}
-function createEdges() {
-  return `<div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div><div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>`;
-}
-function createTopLeft() {
-  return `<div class="top-left"><button class="btn" onclick="resetCrop()">Reset</button><button class="btn" onclick="newImage()">New</button><label class="grid-toggle"><input type="checkbox" id="grid-toggle-input" checked onchange="toggleGrid(this.checked)"><span>Grid</span></label></div>`;
-}
-function createTopRight() {
-  return `<div class="top-right"><div class="top-right-label">Export</div><div class="dim-field"><span class="dim-caption">Width</span><input type="number" id="export-w" class="export-input" inputmode="numeric" oninput="onExportInput('w', this.value)"></div><span style="color:#555;">×</span><div class="dim-field"><span class="dim-caption">Height</span><input type="number" id="export-h" class="export-input" inputmode="numeric" oninput="onExportInput('h', this.value)"></div><button class="btn btn-primary" onclick="exportImage()">Export</button><div id="scale-indicator" class="scale-indicator hidden"></div></div>`;
+function createControlPanel() {
+  const fullW = state.fullImage?.naturalWidth || state.image.naturalWidth;
+  const fullH = state.fullImage?.naturalHeight || state.image.naturalHeight;
+  const srcText = `Src: ${fullW}×${fullH}`;
+
+  return `
+    <div class="control-panel">
+        <div class="panel-row">
+            ${createAspectButtons()}
+            ${createCustomAspectControl()}
+            <div class="divider"></div>
+            ${createTopCenterPresets()}
+            <div class="divider"></div>
+            ${createExportControls()}
+        </div>
+        <div class="panel-row">
+            <div class="info-bar">
+                <div id="src-info">${srcText}</div>
+                <div id="crop-info"></div>
+            </div>
+            <div class="divider"></div>
+            <button class="btn" onclick="toggleGrid()">Grid</button>
+            <div class="divider"></div>
+            ${createZoomControls()}
+            <div class="divider"></div>
+            <button class="btn" onclick="resetCrop()">Reset</button>
+            <button class="btn" onclick="newImage()">New</button>
+        </div>
+    </div>
+    `;
 }
 
-function createBottomCenter(srcText, cropText) {
+function createExportControls() {
   return `
-    <div class="bottom-center">
-      <div class="info"><div id="src-info">${srcText}</div><div id="crop-info">${cropText}</div></div>
-      <div class="aspect-btns" id="aspect-btns">${createAspectButtons()}${createCustomAspectControl()}</div>
-      <div class="zoom-controls">
+    <div class="panel-row" style="gap: 4px;">
+        <div class="custom-input-group">
+            <input type="text" id="export-w" class="custom-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
+            <span>×</span>
+            <input type="text" id="export-h" class="custom-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
+        </div>
+        <button class="btn btn-primary" onclick="exportImage()">Export</button>
+        <div id="scale-indicator"></div>
+    </div>
+    `;
+}
+
+function createZoomControls() {
+  return `
+    <div class="panel-row">
         <button class="btn" onclick="zoomToFit()">Fit</button>
         <input type="range" id="zoom-slider" min="0" max="1000" step="1">
         <div id="zoom-indicator">100%</div>
         <button class="btn" onclick="zoomToActual()">100%</button>
-      </div>
     </div>
-  `;
+    `;
+}
+
+function createContextHud() {
+  return `
+    <div class="context-hud" id="context-hud">
+        <div>
+            <div class="hud-label">Crop Dims</div>
+            <div class="hud-value" id="hud-crop-info"></div>
+        </div>
+        <div id="hud-scale-indicator"></div>
+    </div>
+    `;
 }
 
 function bindCropView() {
@@ -126,8 +163,6 @@ function bindCropView() {
   };
 
   document.getElementById("zoom-slider").oninput = handleSliderZoom;
-  const gridToggle = document.getElementById("grid-toggle-input");
-  if (gridToggle) gridToggle.checked = state.showGrid;
 
   syncExportInputsToCrop();
   updatePresetTriggers();
@@ -136,8 +171,7 @@ function bindCropView() {
 
 function onViewportResize() {
   if (!state.image) return;
-  if (state.drag || state.committing) return; // Don't reflow during interaction
-
+  if (state.drag || state.committing) return;
   recalculateLayout();
   requestRender();
 }
@@ -229,18 +263,38 @@ function renderFrame() {
   const gridCanvas = document.getElementById("grid-canvas");
   if (gridCanvas) renderGrid(gridCanvas, cropW, cropH);
 
-  updateCropInfo();
+  updateInfoDisplays();
   updatePresetTriggers();
   syncExportInputsToCrop();
-  updateScaleIndicator();
   updateAspectBar();
   updateZoomUI();
+  updateContextHud(overlay);
 }
 
-function updateCropInfo() {
+function updateInfoDisplays() {
+  const w = Math.round(state.crop.w);
+  const h = Math.round(state.crop.h);
+  const cropText = `Crop: ${w}×${h}`;
+
   const cropInfo = document.getElementById("crop-info");
-  if (cropInfo)
-    cropInfo.textContent = `Crop: ${Math.round(state.crop.w)}×${Math.round(state.crop.h)}`;
+  if (cropInfo) cropInfo.textContent = cropText;
+
+  const hudCropInfo = document.getElementById("hud-crop-info");
+  if (hudCropInfo) hudCropInfo.textContent = `${w} × ${h}`;
+
+  updateScaleIndicator(); // This handles both indicators
+}
+
+function updateContextHud(overlay) {
+  const hud = document.getElementById("context-hud");
+  if (!hud) return;
+
+  const rect = overlay.getBoundingClientRect();
+  const vp = state.viewport;
+  const isOffscreen =
+    rect.bottom < 0 || rect.top > vp.h || rect.right < 0 || rect.left > vp.w;
+
+  hud.classList.toggle("visible", isOffscreen);
 }
 
 function updateAspectBar() {
@@ -278,7 +332,7 @@ function renderGrid(gridCanvas, cropW, cropH) {
   gctx.stroke();
 }
 
-function toggleGrid(on) {
-  state.showGrid = !!on;
+function toggleGrid() {
+  state.showGrid = !state.showGrid;
   requestRender();
 }

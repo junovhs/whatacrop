@@ -3,131 +3,110 @@
 function onExportInput(dim, val) {
   if (!state.image || !state.crop.w || !state.crop.h) return;
   assert(dim === "w" || dim === "h", "onExportInput: invalid dimension");
-  assert(typeof val === "string", "onExportInput: val must be string");
 
-  // If user edits dimensions while a fixed preset is active,
-  // gracefully switch them to a custom pixel mode.
+  // Allow empty string to clear the input
+  const cleanVal = val.trim();
+
   if (state.mode === MODE.PIXEL_PRESET) {
     setMode(MODE.CUSTOM_PIXEL);
+    clearAllSelections(false); // Preserve custom pixel values
   }
 
-  let w = parseInt(state.exportW, 10) || Math.round(state.crop.w);
-  let h = parseInt(state.exportH, 10) || Math.round(state.crop.h);
-  const nv = parseInt(val, 10);
-  if (!(nv > 0)) return;
+  let w = parseInt(state.exportW, 10) || 0;
+  let h = parseInt(state.exportH, 10) || 0;
+  const nv = parseInt(cleanVal, 10);
 
-  if (dim === "w") w = nv;
-  else h = nv;
+  if (dim === "w") w = nv || 0;
+  else h = nv || 0;
 
   if (w > MAX_PIXEL_DIM || h > MAX_PIXEL_DIM) return;
 
-  // Recalculate the other dimension if aspect is locked
   const aspectIsLocked =
     state.mode === MODE.ASPECT_RATIO ||
     state.mode === MODE.PIXEL_PRESET ||
     state.mode === MODE.CUSTOM_PIXEL;
-  if (aspectIsLocked) {
-    const r = state.aspectRatio || getCropAspect() || 1;
-    validateAspectRatio(r);
-    if (dim === "w") h = Math.round(w / r);
-    else w = Math.round(h * r);
+  if (aspectIsLocked && state.aspectRatio > 0) {
+    const r = state.aspectRatio;
+    if (dim === "w" && w > 0) h = Math.round(w / r);
+    else if (dim === "h" && h > 0) w = Math.round(h * r);
   }
 
-  state.exportW = String(w);
-  state.exportH = String(h);
+  state.exportW = w > 0 ? String(w) : "";
+  state.exportH = h > 0 ? String(h) : "";
 
-  // Update the UI label for the custom preset
   if (state.mode === MODE.CUSTOM_PIXEL) {
-    markPresetActive("custom-pixel", `Custom ${w}×${h}`);
+    markPresetActive("custom-pixel", `Custom ${w || "W"}×${h || "H"}`);
   }
 
   syncExportInputsToCrop();
-  updateScaleIndicator();
+  updateInfoDisplays();
 }
 
 function syncExportInputsToCrop() {
   const ew = document.getElementById("export-w");
   const eh = document.getElementById("export-h");
   if (!ew || !eh) return;
-  if (!state.crop.w || !state.crop.h) return;
 
   const cropW = Math.round(state.crop.w);
   const cropH = Math.round(state.crop.h);
-  let w = parseInt(state.exportW, 10);
-  let h = parseInt(state.exportH, 10);
+  let wStr = state.exportW;
+  let hStr = state.exportH;
 
-  // CORE FIX: For pixel presets, the export dimensions are FIXED and should NOT change.
   if (state.mode === MODE.PIXEL_PRESET) {
-    w = parseInt(state.exportW, 10);
-    h = parseInt(state.exportH, 10);
+    // Dimensions are fixed by the preset
   } else if (state.mode === MODE.CUSTOM_PIXEL) {
-    if (!(w > 0 && h > 0)) {
-      w = cropW;
-      h = cropH;
-    }
+    // User-defined, do nothing
   } else if (state.mode === MODE.ASPECT_RATIO) {
-    const r = state.aspectRatio || getCropAspect() || 1;
-    if (!(w > 0 && h > 0)) {
-      w = cropW;
-      h = Math.round(w / r);
-    }
-    if (w > cropW) w = cropW;
-    h = Math.round(w / r);
+    let w = cropW;
+    let h = Math.round(w / state.aspectRatio);
     if (h > cropH) {
       h = cropH;
-      w = Math.round(h * r);
+      w = Math.round(h * state.aspectRatio);
     }
+    wStr = String(w);
+    hStr = String(h);
   } else {
     // MODE.NONE
-    w = cropW;
-    h = cropH;
+    wStr = String(cropW);
+    hStr = String(cropH);
   }
 
-  if (!(w > 0 && h > 0)) {
-    w = cropW;
-    h = cropH;
-  }
-  state.exportW = String(w);
-  state.exportH = String(h);
-  ew.value = w;
-  eh.value = h;
+  state.exportW = wStr;
+  state.exportH = hStr;
+
+  if (document.activeElement !== ew) ew.value = wStr;
+  if (document.activeElement !== eh) eh.value = hStr;
 }
 
 function updateScaleIndicator() {
   const el = document.getElementById("scale-indicator");
-  if (!el) return;
+  const hudEl = document.getElementById("hud-scale-indicator");
+  if (!el || !hudEl) return;
 
   const showIndicator =
     state.mode === MODE.CUSTOM_PIXEL || state.mode === MODE.PIXEL_PRESET;
-  if (!showIndicator) {
-    el.className = "scale-indicator hidden";
-    return;
-  }
 
-  const cropW = state.crop.w;
   const w = parseInt(state.exportW, 10);
-  if (!(cropW > 0 && w > 0)) {
-    el.className = "scale-indicator hidden";
+  const cropW = state.crop.w;
+
+  if (!showIndicator || !(w > 0) || !(cropW > 0)) {
+    el.innerHTML = "";
+    hudEl.innerHTML = "";
     return;
   }
 
   const scale = cropW / w;
-  state.scaleFactor = scale;
-
-  let level = "ok";
-  if (scale < 1) level = "bad";
-  else if (scale < 1.5) level = "warn";
-  state.scaleLevel = level;
-
+  const level = scale < 1 ? "bad" : scale < 1.5 ? "warn" : "ok";
   const pct = (scale * 100).toFixed(0);
-  let text = `${pct}%`;
+  const text = scale < 1 ? "UPSCALING" : `${pct}%`;
 
-  if (level === "ok") text += " (Detail)";
-  else if (level === "warn") text += " (Native)";
-  else text += " (UPSCALING)";
+  const indicatorHTML = `<div class="scale-indicator ${level}">${text}</div>`;
+  el.innerHTML = indicatorHTML;
 
-  el.textContent = text;
-  el.className = `scale-indicator ${level}`;
+  const hudIndicatorHTML = `
+    <div class="hud-label">Quality</div>
+    <div class="hud-value">${indicatorHTML}</div>`;
+  hudEl.innerHTML = hudIndicatorHTML;
 }
 
 function exportImage() {
@@ -157,11 +136,7 @@ function exportImage() {
     return;
   }
 
-  const srcX = state.crop.x;
-  const srcY = state.crop.y;
-  const srcW = state.crop.w;
-  const srcH = state.crop.h;
-
+  const { x: srcX, y: srcY, w: srcW, h: srcH } = state.crop;
   const fullImg = state.fullImage || state.image;
   const maxX = Math.max(0, fullImg.naturalWidth - srcW);
   const maxY = Math.max(0, fullImg.naturalHeight - srcH);
