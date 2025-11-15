@@ -419,12 +419,11 @@ body {
     transition: opacity var(--transition-base);
 }
 
-.aspect-tools:hover,
-.crop-overlay:hover + .crop-metadata,
+.crop-overlay:hover .crop-metadata,
+.crop-overlay:hover .aspect-tools,
+.crop-overlay:hover .export-tools,
 .crop-metadata:hover,
-.crop-overlay:hover + .crop-metadata + .aspect-tools,
-.aspect-tools:hover + .export-tools,
-.crop-overlay:hover + .crop-metadata + .aspect-tools + .export-tools,
+.aspect-tools:hover,
 .export-tools:hover {
     opacity: 1;
     pointer-events: auto;

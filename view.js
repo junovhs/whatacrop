@@ -71,10 +71,10 @@ function createCropView() {
         <div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div>
         <div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>
         <canvas id="grid-canvas" class="grid-canvas"></canvas>
+        ${createCropMetadata()}
+        ${createAspectTools()}
+        ${createExportTools()}
       </div>
-      ${createCropMetadata()}
-      ${createAspectTools()}
-      ${createExportTools()}
     </div>
     ${createTopBar()}
     ${createBottomBar()}
@@ -291,7 +291,7 @@ function bindCropView() {
 
   document.getElementById("zoom-slider").oninput = handleSliderZoom;
   document.addEventListener("keydown", handleKeyboard);
-  document.addEventListener("click", closeAllPresetMenusGlobal);
+  document.addEventListener("click", closeAllPresetMenus);
 
   syncExportInputsToCrop();
   updateAspectUI();
@@ -323,7 +323,7 @@ function togglePresetMenu(e, key) {
   if (!wasVisible) menu.classList.add("visible");
 }
 
-function closeAllPresetMenusGlobal(e) {
+function closeAllPresetMenus(e) {
   if (e && e.target.closest(".preset-group")) return;
   document
     .querySelectorAll(".preset-menu.visible")
@@ -568,71 +568,4 @@ function renderGrid(gridCanvas, cropW, cropH) {
 function toggleGrid() {
   state.showGrid = !state.showGrid;
   requestRender();
-}
-
-function resetCrop() {
-  if (!state.image) return;
-  clearAllSelections();
-  resetCropToFull(state.image);
-  requestRender();
-  scheduleCommit();
-}
-
-function newImage() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = (e) => {
-    if (e.target.files && e.target.files.length) {
-      loadImageFile(e.target.files[0]);
-    }
-  };
-  input.click();
-}
-
-function syncExportInputsToCrop() {
-  const wInput = document.getElementById("export-w");
-  const hInput = document.getElementById("export-h");
-  if (!wInput || !hInput || !state.image) return;
-
-  if (state.exportW && state.exportH) {
-    wInput.value = state.exportW;
-    hInput.value = state.exportH;
-    return;
-  }
-
-  const actualW = Math.round(state.crop.w);
-  const actualH = Math.round(state.crop.h);
-  wInput.value = actualW;
-  hInput.value = actualH;
-}
-
-function onExportInput(dim, value) {
-  const parsed = parseInt(value, 10);
-  if (!isNaN(parsed) && parsed > 0) {
-    if (dim === "w") {
-      state.exportW = String(parsed);
-      if (
-        state.mode === MODE.ASPECT_RATIO ||
-        state.mode === MODE.PIXEL_PRESET ||
-        state.mode === MODE.CUSTOM_PIXEL
-      ) {
-        const newH = Math.round(parsed / state.aspectRatio);
-        state.exportH = String(newH);
-        document.getElementById("export-h").value = newH;
-      }
-    } else {
-      state.exportH = String(parsed);
-      if (
-        state.mode === MODE.ASPECT_RATIO ||
-        state.mode === MODE.PIXEL_PRESET ||
-        state.mode === MODE.CUSTOM_PIXEL
-      ) {
-        const newW = Math.round(parsed * state.aspectRatio);
-        state.exportW = String(newW);
-        document.getElementById("export-w").value = newW;
-      }
-    }
-  }
-  updateScaleIndicator();
 }
