@@ -201,7 +201,13 @@ function handleDrag(e) {
     const next = { ...state.drag.startCrop };
     const dxImage = (dxScreen / currentScale) * state.previewScale;
     const dyImage = (dyScreen / currentScale) * state.previewScale;
-    resizeCrop(next, state.drag.startCrop, state.drag.handle, dxImage, dyImage);
+    const aspectRatio =
+      state.mode === MODE.ASPECT_RATIO ||
+      state.mode === MODE.PIXEL_PRESET ||
+      state.mode === MODE.CUSTOM_PIXEL
+        ? state.aspectRatio
+        : 0;
+    resizeCrop(next, state.drag.handle, dxImage, dyImage, aspectRatio);
     state.crop = next;
   }
 
