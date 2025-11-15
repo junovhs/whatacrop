@@ -9,9 +9,9 @@ const MAX_CANVAS_DIM = 16384;
 const EPSILON = 0.001;
 const MAX_ASPECT_VALUE = 100;
 const MAX_PIXEL_DIM = 50000;
-const PREVIEW_MAX_DIM = 4096; // Max preview dimension for smooth UI
-const MIN_ZOOM = 0.1; // 10%
-const MAX_ZOOM = 32.0; // 3200%
+const PREVIEW_MAX_DIM = 4096;
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 32.0;
 
 const MODE = {
   NONE: "none",
@@ -27,8 +27,8 @@ const state = {
   crop: { x: 0, y: 0, w: 0, h: 0 },
   viewport: { w: 0, h: 0 },
   imageTransform: { tx: 0, ty: 0 },
-  baseScale: 1, // The scale required to fit the image to the viewport
-  zoom: 1, // The user-controlled zoom multiplier
+  baseScale: 1,
+  zoom: 1,
   drag: null,
   committing: false,
   commitTimer: null,
@@ -72,26 +72,26 @@ function getCropAspect() {
   return valid ? state.crop.w / state.crop.h : 0;
 }
 
-function reduceRatio(w, h) {
-  assert(typeof w === "number", "reduceRatio: w must be number");
-  assert(typeof h === "number", "reduceRatio: h must be number");
-
-  if (!(w > 0 && h > 0)) return { w: 0, h: 0 };
-
-  let a = w;
-  let b = h;
+function gcd(a, b) {
+  assert(typeof a === "number", "gcd: a must be number");
+  assert(typeof b === "number", "gcd: b must be number");
   let iterations = 0;
   const MAX_ITERATIONS = 1000;
-
   while (b !== 0 && iterations < MAX_ITERATIONS) {
     const t = b;
     b = a % b;
     a = t;
     iterations++;
   }
+  assert(iterations < MAX_ITERATIONS, "gcd: exceeded iteration limit");
+  return a;
+}
 
-  assert(iterations < MAX_ITERATIONS, "reduceRatio: exceeded iteration limit");
-  const g = a || 1;
+function reduceRatio(w, h) {
+  assert(typeof w === "number", "reduceRatio: w must be number");
+  assert(typeof h === "number", "reduceRatio: h must be number");
+  if (!(w > 0 && h > 0)) return { w: 0, h: 0 };
+  const g = gcd(w, h) || 1;
   return { w: w / g, h: h / g };
 }
 

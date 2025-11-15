@@ -72,75 +72,205 @@ function createCropView() {
         <div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>
         <canvas id="grid-canvas" class="grid-canvas"></canvas>
       </div>
+      ${createCropMetadata()}
+      ${createAspectTools()}
+      ${createExportTools()}
     </div>
-    ${createContextHud()}
-    ${createControlPanel()}
+    ${createTopBar()}
+    ${createBottomBar()}
   `;
 }
 
-function createContextHud() {
+function createTopBar() {
   return `
-    <div class="context-hud" id="context-hud">
-        <div>
-            <div class="hud-label">Source</div>
-            <div class="hud-value" id="hud-src-info">—</div>
-        </div>
-        <div>
-            <div class="hud-label">Crop</div>
-            <div class="hud-value" id="hud-crop-info">—</div>
-        </div>
-        <div id="hud-scale-indicator"></div>
-    </div>
-  `;
-}
-
-function createControlPanel() {
-  return `
-    <div class="control-panel">
-        <div class="panel-row">
-            <div class="aspect-section">
-                ${createAspectButtons()}
-                ${createCustomAspectControl()}
-            </div>
-            <div class="divider"></div>
-            <div class="preset-section">
-                ${createTopCenterPresets()}
-            </div>
-            <div class="divider"></div>
-            <div class="export-section">
-                ${createExportControls()}
-            </div>
-        </div>
-        <div class="panel-row">
-            <div class="control-section">
-                <button class="btn" onclick="toggleGrid()">Grid</button>
-                ${createZoomControls()}
-                <button class="btn" onclick="resetCrop()">Reset</button>
-                <button class="btn" onclick="newImage()">New</button>
-            </div>
-        </div>
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="info-pill" id="source-info">—</div>
+        <div class="info-pill" id="crop-info">—</div>
+      </div>
+      <div class="top-bar-right">
+        <button class="tool-btn" onclick="newImage()" title="New Image (N)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="2"/>
+            <path d="M8 5v6M5 8h6"/>
+          </svg>
+        </button>
+      </div>
     </div>
   `;
 }
 
-function createExportControls() {
+function createBottomBar() {
   return `
-    <div class="custom-input-group">
-        <input type="text" id="export-w" class="custom-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
-        <span>×</span>
-        <input type="text" id="export-h" class="custom-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
+    <div class="bottom-bar">
+      <button class="tool-btn" onclick="toggleGrid()" title="Grid (G)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M5.5 2v12M10.5 2v12M2 5.5h12M2 10.5h12"/>
+        </svg>
+      </button>
+      <div class="zoom-group">
+        <button class="tool-btn" onclick="zoomToFit()" title="Fit (F)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="3" width="10" height="10" rx="1"/>
+            <path d="M6 6l4 4M10 6l-4 4"/>
+          </svg>
+        </button>
+        <input type="range" id="zoom-slider" min="0" max="1000" step="1">
+        <div id="zoom-indicator">100%</div>
+        <button class="tool-btn" onclick="zoomToActual()" title="100% (1)">1:1</button>
+      </div>
+      <button class="tool-btn" onclick="resetCrop()" title="Reset (R)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 8a6 6 0 0112 0M14 8a6 6 0 01-12 0"/>
+          <path d="M2 4v4h4M14 12v-4h-4"/>
+        </svg>
+      </button>
     </div>
-    <button class="btn btn-primary" onclick="exportImage()">Export</button>
-    <div id="scale-indicator"></div>
   `;
 }
 
-function createZoomControls() {
+function createCropMetadata() {
   return `
-    <button class="btn" onclick="zoomToFit()">Fit</button>
-    <input type="range" id="zoom-slider" min="0" max="1000" step="1">
-    <div id="zoom-indicator">100%</div>
-    <button class="btn" onclick="zoomToActual()">100%</button>
+    <div class="crop-metadata" id="crop-metadata">
+      <div class="metadata-value" id="crop-dimensions">—</div>
+      <div class="metadata-arrow">→</div>
+      <div class="metadata-value" id="export-dimensions">—</div>
+      <div class="metadata-note" id="scale-note"></div>
+    </div>
+  `;
+}
+
+function createAspectTools() {
+  return `
+    <div class="aspect-tools" id="aspect-tools">
+      <div class="aspect-pills">
+        <button class="aspect-pill" data-aspect="0" onclick="setAspectFromButton(0)">Free</button>
+        <button class="aspect-pill" data-aspect="1" onclick="setAspectFromButton(1)">1:1</button>
+        <button class="aspect-pill" data-aspect="${4 / 3}" onclick="setAspectFromButton(${4 / 3})">4:3</button>
+        <button class="aspect-pill" data-aspect="${3 / 2}" onclick="setAspectFromButton(${3 / 2})">3:2</button>
+        <button class="aspect-pill" data-aspect="${16 / 9}" onclick="setAspectFromButton(${16 / 9})">16:9</button>
+        <button class="aspect-pill" data-aspect="${9 / 16}" onclick="setAspectFromButton(${9 / 16})">9:16</button>
+        <div class="divider-h"></div>
+        ${createCustomAspectControl()}
+        <div class="divider-h"></div>
+        ${createPresetDropdowns()}
+      </div>
+    </div>
+  `;
+}
+
+function createCustomAspectControl() {
+  const isActive = state.customAspectActive;
+  const hasCustom =
+    state.mode === MODE.ASPECT_RATIO && state.customAspectLabel !== "Custom";
+  const label = hasCustom ? state.customAspectLabel : "Custom";
+  const btnClass = `aspect-pill ${isActive || hasCustom ? "active" : ""} ${isActive ? "pulsing" : ""}`;
+
+  if (isActive) {
+    return `
+      <div class="custom-aspect-form">
+        <input id="custom-aspect-w" type="number" min="1" placeholder="W" class="aspect-input" value="${state.customAspectW || ""}">
+        <span>:</span>
+        <input id="custom-aspect-h" type="number" min="1" placeholder="H" class="aspect-input" value="${state.customAspectH || ""}">
+        <button class="btn-apply" onclick="applyCustomAspectInline()">✓</button>
+        <button class="btn-cancel" onclick="toggleCustomAspectActive()">✕</button>
+      </div>
+    `;
+  }
+  return `<button class="${btnClass}" onclick="toggleCustomAspectActive()">${label}</button>`;
+}
+
+function createPresetDropdowns() {
+  return `
+    <div class="preset-group">
+      <button class="aspect-pill preset-trigger ${state.activePresetKey === "social" ? "active" : ""}" onclick="togglePresetMenu(event, 'social')">
+        <span>${state.presetLabels.social}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 3 3-3"/></svg>
+      </button>
+      <div id="preset-menu-social" class="preset-menu">
+        ${createSocialPresets()}
+      </div>
+    </div>
+    <div class="preset-group">
+      <button class="aspect-pill preset-trigger ${state.activePresetKey === "docs" ? "active" : ""}" onclick="togglePresetMenu(event, 'docs')">
+        <span>${state.presetLabels.docs}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 3 3-3"/></svg>
+      </button>
+      <div id="preset-menu-docs" class="preset-menu">
+        ${createDocsPresets()}
+      </div>
+    </div>
+    <div class="preset-group">
+      <button class="aspect-pill preset-trigger ${state.activePresetKey === "custom-pixel" ? "active" : ""} ${state.customPixelActive ? "pulsing" : ""}" onclick="togglePresetMenu(event, 'custom-pixel')">
+        <span>${state.presetLabels["custom-pixel"]}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 3 3-3"/></svg>
+      </button>
+      <div id="preset-menu-custom-pixel" class="preset-menu ${state.customPixelActive ? "visible" : ""}">
+        ${createCustomPixelControl()}
+      </div>
+    </div>
+  `;
+}
+
+function createSocialPresets() {
+  return `
+    <div class="preset-group-label">Instagram</div>
+    <button class="preset-item" onclick="selectPixelPreset('social','IG Square',1080,1080)">Square 1080×1080</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','IG Portrait',1080,1350)">Portrait 1080×1350</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','IG Landscape',1080,566)">Landscape 1080×566</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','IG Story',1080,1920)">Story 1080×1920</button>
+    <div class="preset-group-label">Facebook</div>
+    <button class="preset-item" onclick="selectPixelPreset('social','FB Link',1200,630)">Link 1200×630</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','FB Post',1080,1080)">Post 1080×1080</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','FB Cover',820,312)">Cover 820×312</button>
+    <div class="preset-group-label">X / Twitter</div>
+    <button class="preset-item" onclick="selectPixelPreset('social','X Post',1600,900)">Post 1600×900</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','X Header',1500,500)">Header 1500×500</button>
+    <div class="preset-group-label">YouTube</div>
+    <button class="preset-item" onclick="selectPixelPreset('social','YT Thumb',1280,720)">Thumbnail 1280×720</button>
+    <button class="preset-item" onclick="selectPixelPreset('social','YT Frame',1920,1080)">Frame 1920×1080</button>
+  `;
+}
+
+function createDocsPresets() {
+  return `
+    <div class="preset-group-label">Print @300dpi</div>
+    <button class="preset-item" onclick="selectPixelPreset('docs','A4',2480,3508)">A4 2480×3508</button>
+    <button class="preset-item" onclick="selectPixelPreset('docs','Letter',2550,3300)">Letter 2550×3300</button>
+    <button class="preset-item" onclick="selectPixelPreset('docs','A5',1748,2480)">A5 1748×2480</button>
+  `;
+}
+
+function createCustomPixelControl() {
+  return `
+    <div class="preset-group-label">Custom Output Size</div>
+    <div class="custom-pixel-form">
+      <input id="custom-pixel-w" type="number" min="1" placeholder="W" class="aspect-input" value="${state.customPixelW || ""}">
+      <span>×</span>
+      <input id="custom-pixel-h" type="number" min="1" placeholder="H" class="aspect-input" value="${state.customPixelH || ""}">
+      <button class="btn-apply" onclick="applyCustomPixelPreset()">✓ Apply</button>
+    </div>
+  `;
+}
+
+function createExportTools() {
+  return `
+    <div class="export-tools" id="export-tools">
+      <div class="export-label">Export Size</div>
+      <div class="export-size-inputs">
+        <input type="text" id="export-w" class="size-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
+        <span class="size-separator">×</span>
+        <input type="text" id="export-h" class="size-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
+      </div>
+      <div id="scale-indicator-export" class="scale-indicator"></div>
+      <button class="export-action" onclick="exportImage()">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M6 10l4 4 4-4M10 3v11"/>
+          <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2"/>
+        </svg>
+        <span>Export</span>
+      </button>
+    </div>
   `;
 }
 
@@ -148,6 +278,7 @@ function bindCropView() {
   document
     .querySelectorAll("[data-handle]")
     .forEach((h) => (h.onmousedown = (e) => startDrag(e, h.dataset.handle)));
+
   const area = document.getElementById("crop-area");
   assert(area, "bindCropView: missing crop area");
   area.onmousedown = (e) => startDrag(e, "move");
@@ -159,10 +290,54 @@ function bindCropView() {
   };
 
   document.getElementById("zoom-slider").oninput = handleSliderZoom;
+  document.addEventListener("keydown", handleKeyboard);
+  document.addEventListener("click", closeAllPresetMenusGlobal);
 
   syncExportInputsToCrop();
-  updatePresetTriggers();
-  document.addEventListener("click", closeAllPresetMenus);
+  updateAspectUI();
+  updateCropInfoUI();
+}
+
+function setAspectFromButton(ratio) {
+  if (!state.image) return;
+  clearAllSelections();
+  if (ratio === 0) {
+    setMode(MODE.NONE);
+    state.aspectRatio = 0;
+  } else {
+    setMode(MODE.ASPECT_RATIO);
+    state.aspectRatio = ratio;
+    applyAspectToCrop(ratio);
+  }
+  updateAspectUI();
+  requestRender();
+  scheduleCommit();
+}
+
+function togglePresetMenu(e, key) {
+  e.stopPropagation();
+  const menu = document.getElementById(`preset-menu-${key}`);
+  if (!menu) return;
+  const wasVisible = menu.classList.contains("visible");
+  closeAllPresetMenus();
+  if (!wasVisible) menu.classList.add("visible");
+}
+
+function closeAllPresetMenusGlobal(e) {
+  if (e && e.target.closest(".preset-group")) return;
+  document
+    .querySelectorAll(".preset-menu.visible")
+    .forEach((m) => m.classList.remove("visible"));
+}
+
+function handleKeyboard(e) {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "g") toggleGrid();
+  else if (e.key === "r") resetCrop();
+  else if (e.key === "f") zoomToFit();
+  else if (e.key === "1") zoomToActual();
+  else if (e.key === "n") newImage();
+  else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") exportImage();
 }
 
 function onViewportResize() {
@@ -191,20 +366,98 @@ function handleSliderZoom(e) {
   setZoom(newZoom, focalPoint);
 }
 
-function updateZoomUI() {
-  const indicator = document.getElementById("zoom-indicator");
-  const slider = document.getElementById("zoom-slider");
-  if (!indicator || !slider) return;
+function updateCropInfoUI() {
+  const srcInfo = document.getElementById("source-info");
+  const cropInfo = document.getElementById("crop-info");
+  const cropDimensions = document.getElementById("crop-dimensions");
+  const exportDimensions = document.getElementById("export-dimensions");
+  const scaleNote = document.getElementById("scale-note");
 
-  const screenPixelsPerImagePixel =
-    (state.baseScale * state.zoom) / state.previewScale;
-  indicator.textContent = `${(screenPixelsPerImagePixel * 100).toFixed(0)}%`;
+  if (!state.image) return;
 
-  const logMin = Math.log(MIN_ZOOM);
-  const logMax = Math.log(MAX_ZOOM);
-  const currentVal = Math.log(state.zoom);
-  const sliderPos = ((currentVal - logMin) / (logMax - logMin)) * 1000;
-  if (document.activeElement !== slider) slider.value = sliderPos;
+  const srcW = state.fullImage?.naturalWidth || state.image.naturalWidth;
+  const srcH = state.fullImage?.naturalHeight || state.image.naturalHeight;
+  if (srcInfo) srcInfo.textContent = `${srcW}×${srcH}`;
+
+  const { w, h } = state.crop;
+  const actualW = Math.round(w);
+  const actualH = Math.round(h);
+  if (cropInfo) cropInfo.textContent = `${actualW}×${actualH}`;
+
+  if (cropDimensions) {
+    const g = gcd(actualW, actualH);
+    const aspectW = actualW / g;
+    const aspectH = actualH / g;
+    cropDimensions.textContent = `${actualW}×${actualH} (${aspectW}:${aspectH})`;
+  }
+
+  const exportW =
+    parseInt(document.getElementById("export-w")?.value) || actualW;
+  const exportH =
+    parseInt(document.getElementById("export-h")?.value) || actualH;
+
+  if (exportDimensions) {
+    exportDimensions.textContent = `${exportW}×${exportH}`;
+  }
+
+  updateScaleIndicator();
+}
+
+function updateScaleIndicator() {
+  const scaleNote = document.getElementById("scale-note");
+  const scaleExport = document.getElementById("scale-indicator-export");
+
+  const { w, h } = state.crop;
+  const actualW = Math.round(w);
+  const actualH = Math.round(h);
+
+  const exportW =
+    parseInt(document.getElementById("export-w")?.value) || actualW;
+  const exportH =
+    parseInt(document.getElementById("export-h")?.value) || actualH;
+
+  const scaleX = exportW / actualW;
+  const scaleY = exportH / actualH;
+  const scale = Math.min(scaleX, scaleY);
+
+  let text, className;
+  if (Math.abs(scale - 1) < 0.1) {
+    text = "1:1";
+    className = "ok";
+  } else if (scale < 1) {
+    text = `↓${Math.round((1 - scale) * 100)}%`;
+    className = "ok";
+  } else if (scale <= 1.5) {
+    text = `↑${Math.round((scale - 1) * 100)}%`;
+    className = "ok";
+  } else if (scale <= 2) {
+    text = `↑${Math.round((scale - 1) * 100)}%`;
+    className = "warn";
+  } else {
+    text = `↑${Math.round((scale - 1) * 100)}%`;
+    className = "bad";
+  }
+
+  if (scaleNote) {
+    scaleNote.textContent = text;
+    scaleNote.className = `metadata-note ${className}`;
+  }
+  if (scaleExport) {
+    scaleExport.textContent = text;
+    scaleExport.className = `scale-indicator ${className}`;
+  }
+}
+
+function updateAspectUI() {
+  document.querySelectorAll(".aspect-pill[data-aspect]").forEach((btn) => {
+    const ratio = parseFloat(btn.dataset.aspect);
+    const isActive =
+      (state.mode === MODE.NONE && ratio === 0) ||
+      (state.mode === MODE.ASPECT_RATIO &&
+        Math.abs(state.aspectRatio - ratio) < EPSILON);
+    btn.classList.toggle("active", isActive);
+  });
+  updatePresetTriggers();
 }
 
 function renderFrame() {
@@ -259,31 +512,26 @@ function renderFrame() {
   const gridCanvas = document.getElementById("grid-canvas");
   if (gridCanvas) renderGrid(gridCanvas, cropW, cropH);
 
-  updateInfoDisplays();
+  updateCropInfoUI();
   updatePresetTriggers();
   syncExportInputsToCrop();
   updateZoomUI();
 }
 
-function updateAspectBar() {
-  // No-op in new layout - aspect buttons are static
-}
+function updateZoomUI() {
+  const indicator = document.getElementById("zoom-indicator");
+  const slider = document.getElementById("zoom-slider");
+  if (!indicator || !slider) return;
 
-function updateInfoDisplays() {
-  const w = Math.round(state.crop.w);
-  const h = Math.round(state.crop.h);
+  const screenPixelsPerImagePixel =
+    (state.baseScale * state.zoom) / state.previewScale;
+  indicator.textContent = `${(screenPixelsPerImagePixel * 100).toFixed(0)}%`;
 
-  const hudCropInfo = document.getElementById("hud-crop-info");
-  if (hudCropInfo) hudCropInfo.textContent = `${w} × ${h}`;
-
-  const hudSrcInfo = document.getElementById("hud-src-info");
-  if (hudSrcInfo) {
-    const fullW = state.fullImage?.naturalWidth || state.image.naturalWidth;
-    const fullH = state.fullImage?.naturalHeight || state.image.naturalHeight;
-    hudSrcInfo.textContent = `${fullW} × ${fullH}`;
-  }
-
-  updateScaleIndicator();
+  const logMin = Math.log(MIN_ZOOM);
+  const logMax = Math.log(MAX_ZOOM);
+  const currentVal = Math.log(state.zoom);
+  const sliderPos = ((currentVal - logMin) / (logMax - logMin)) * 1000;
+  if (document.activeElement !== slider) slider.value = sliderPos;
 }
 
 function renderGrid(gridCanvas, cropW, cropH) {
@@ -320,4 +568,71 @@ function renderGrid(gridCanvas, cropW, cropH) {
 function toggleGrid() {
   state.showGrid = !state.showGrid;
   requestRender();
+}
+
+function resetCrop() {
+  if (!state.image) return;
+  clearAllSelections();
+  resetCropToFull(state.image);
+  requestRender();
+  scheduleCommit();
+}
+
+function newImage() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = (e) => {
+    if (e.target.files && e.target.files.length) {
+      loadImageFile(e.target.files[0]);
+    }
+  };
+  input.click();
+}
+
+function syncExportInputsToCrop() {
+  const wInput = document.getElementById("export-w");
+  const hInput = document.getElementById("export-h");
+  if (!wInput || !hInput || !state.image) return;
+
+  if (state.exportW && state.exportH) {
+    wInput.value = state.exportW;
+    hInput.value = state.exportH;
+    return;
+  }
+
+  const actualW = Math.round(state.crop.w);
+  const actualH = Math.round(state.crop.h);
+  wInput.value = actualW;
+  hInput.value = actualH;
+}
+
+function onExportInput(dim, value) {
+  const parsed = parseInt(value, 10);
+  if (!isNaN(parsed) && parsed > 0) {
+    if (dim === "w") {
+      state.exportW = String(parsed);
+      if (
+        state.mode === MODE.ASPECT_RATIO ||
+        state.mode === MODE.PIXEL_PRESET ||
+        state.mode === MODE.CUSTOM_PIXEL
+      ) {
+        const newH = Math.round(parsed / state.aspectRatio);
+        state.exportH = String(newH);
+        document.getElementById("export-h").value = newH;
+      }
+    } else {
+      state.exportH = String(parsed);
+      if (
+        state.mode === MODE.ASPECT_RATIO ||
+        state.mode === MODE.PIXEL_PRESET ||
+        state.mode === MODE.CUSTOM_PIXEL
+      ) {
+        const newW = Math.round(parsed * state.aspectRatio);
+        state.exportW = String(newW);
+        document.getElementById("export-w").value = newW;
+      }
+    }
+  }
+  updateScaleIndicator();
 }

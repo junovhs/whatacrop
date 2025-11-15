@@ -1,4 +1,3 @@
-// FILE: crop/main.js
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {

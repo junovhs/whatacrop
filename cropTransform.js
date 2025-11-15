@@ -39,12 +39,10 @@ function recalculateLayout() {
   state.viewport.w = viewport.clientWidth;
   state.viewport.h = viewport.clientHeight;
 
-  // Get the image coordinate that was at the center of the old viewport
   const oldScale = oldBaseScale * oldZoom;
   const centerX_img = (oldVpW / 2 - oldTx) / oldScale;
   const centerY_img = (oldVpH / 2 - oldTy) / oldScale;
 
-  // Recalculate baseScale based on the new viewport size
   const img = state.image;
   const marginW = state.viewport.w * CENTER_MARGIN * 2;
   const marginH = state.viewport.h * CENTER_MARGIN * 2;
@@ -55,7 +53,6 @@ function recalculateLayout() {
   );
   state.baseScale = newBaseScale;
 
-  // Calculate the new transform to keep the same image coordinate at the new center
   const newScale = newBaseScale * oldZoom;
   const newTx = state.viewport.w / 2 - centerX_img * newScale;
   const newTy = state.viewport.h / 2 - centerY_img * newScale;
@@ -159,31 +156,27 @@ function setZoom(targetZoom, focalPoint) {
 
 function zoomToFit(immediate = false) {
   if (!state.image) return;
-  const img = state.image;
+  const { w: cropW, h: cropH } = state.crop;
+  const cropDisplayW = cropW / state.previewScale;
+  const cropDisplayH = cropH / state.previewScale;
+
   const marginW = state.viewport.w * CENTER_MARGIN * 2;
   const marginH = state.viewport.h * CENTER_MARGIN * 2;
-  const newBaseScale = Math.min(
-    1,
-    (state.viewport.w - marginW) / img.naturalWidth,
-    (state.viewport.h - marginH) / img.naturalHeight,
+
+  const targetZoom = Math.min(
+    (state.viewport.w - marginW) / cropDisplayW / state.baseScale,
+    (state.viewport.h - marginH) / cropDisplayH / state.baseScale,
   );
 
-  state.baseScale = newBaseScale;
-  const targetZoom = 1.0;
-
-  const targetTx = (state.viewport.w - img.naturalWidth * newBaseScale) / 2;
-  const targetTy = (state.viewport.h - img.naturalHeight * newBaseScale) / 2;
-
-  animateToTransform(
-    { tx: targetTx, ty: targetTy, zoom: targetZoom },
-    immediate,
-  );
+  const target = computeCenteredTransform();
+  if (target) {
+    animateToTransform({ ...target, zoom: targetZoom }, immediate);
+  }
 }
 
 function zoomToActual(immediate = false) {
   if (!state.image) return;
 
-  // CRITICAL FIX: The correct zoom multiplier to achieve a 1:1 pixel mapping.
   const targetZoom = state.previewScale / state.baseScale;
 
   const focalPoint = { x: state.viewport.w / 2, y: state.viewport.h / 2 };
@@ -201,37 +194,6 @@ function zoomToActual(immediate = false) {
     immediate,
   );
 }
-
-function beginInteract() {
-  if (state.commitTimer) clearTimeout(state.commitTimer);
-  state.committing = false;
-  requestRender();
-}
-
-function applyAspectToCrop(ratio) {
-  const img = state.fullImage || state.image;
-  assert(img, "applyAspectToCrop: no image");
-  assert(ratio > 0, "applyAspectToCrop: ratio must be positive");
-  validateAspectRatio(ratio);
-
-  const imgW = img.naturalWidth;
-  const imgH = img.naturalHeight;
-  let w, h;
-  if (imgW / imgH > ratio) {
-    h = imgH;
-    w = h * ratio;
-  } else {
-    w = imgW;
-    h = w / ratio;
-  }
-
-  assert(w > 0 && w <= imgW, "applyAspectToCrop: invalid width");
-  assert(h > 0 && h <= imgH, "applyAspectToCrop: invalid height");
-
-  state.crop = { x: (imgW - w) / 2, y: (imgH - h) / 2, w, h };
-  validateCrop(state.crop);
-}
-("use strict");
 
 function beginInteract() {
   if (state.commitTimer) clearTimeout(state.commitTimer);
