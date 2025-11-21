@@ -53,7 +53,9 @@ function renderCropView() {
   assert(state.image, "renderCropView: no image");
   const app = document.getElementById("app");
   assert(app, "renderCropView: missing #app container");
+
   app.innerHTML = createCropView();
+
   bindCropView();
   const viewport = document.getElementById("viewport");
   assert(viewport, "renderCropView: missing viewport");
@@ -79,6 +81,7 @@ function createCropView() {
     ${createCornerIcons()}
     ${createPanels()}
     ${createBottomBar()}
+    ${createShortcutsOverlay()}
   `;
 }
 
@@ -184,11 +187,29 @@ function createExportContent() {
 function createBottomBar() {
   return `
     <div class="bottom-bar">
+      <div class="tool-group">
+        <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4.5 7h6a3.5 3.5 0 110 7h-2"/>
+            <path d="M7 4.5L4.5 7 7 9.5"/>
+          </svg>
+        </button>
+        <button class="tool-btn" onclick="redo()" title="Redo (Ctrl+Shift+Z / Ctrl+Y)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+             <path d="M11.5 7h-6a3.5 3.5 0 100 7h2"/>
+             <path d="M9 4.5L11.5 7 9 9.5"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="tool-separator"></div>
+
       <button class="tool-btn" onclick="toggleGrid()" title="Grid (G)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M5.5 2v12M10.5 2v12M2 5.5h12M2 10.5h12"/>
         </svg>
       </button>
+
       <div class="zoom-group">
         <button class="tool-btn" onclick="zoomToFit()" title="Fit (F)">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -200,20 +221,60 @@ function createBottomBar() {
         <div id="zoom-indicator">100%</div>
         <button class="tool-btn" onclick="zoomToActual()" title="100% (1)">1:1</button>
       </div>
+
+      <div class="tool-separator"></div>
+
       <button class="tool-btn" onclick="resetCrop()" title="Reset (R)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M2 8a6 6 0 0112 0M14 8a6 6 0 01-12 0"/>
           <path d="M2 4v4h4M14 12v-4h-4"/>
         </svg>
       </button>
+
       <button class="tool-btn" onclick="newImage()" title="New (N)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <rect x="2" y="2" width="12" height="12" rx="2"/>
           <path d="M8 5v6M5 8h6"/>
         </svg>
       </button>
+
+      <div class="tool-separator"></div>
+
+      <button class="tool-btn" onclick="toggleShortcuts()" title="Shortcuts (?)">
+        <span style="font-family: var(--font-mono); font-weight: 700;">?</span>
+      </button>
     </div>
   `;
+}
+
+function createShortcutsOverlay() {
+  return `
+    <div id="shortcuts-overlay" class="shortcuts-overlay hidden" onclick="toggleShortcuts()">
+      <div class="shortcuts-modal" onclick="event.stopPropagation()">
+        <div class="shortcuts-header">
+          <h3>Keyboard Shortcuts</h3>
+          <button class="close-btn" onclick="toggleShortcuts()">×</button>
+        </div>
+        <div class="shortcuts-list">
+          <div class="shortcut-row"><span class="key-desc">Undo</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Redo</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Redo (Alt)</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Y</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Toggle Grid</span> <div class="keys"><kbd>G</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Zoom to Fit</span> <div class="keys"><kbd>F</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Zoom 1:1</span> <div class="keys"><kbd>1</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Reset Crop</span> <div class="keys"><kbd>R</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">New Image</span> <div class="keys"><kbd>N</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Export</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></div></div>
+          <div class="shortcut-row"><span class="key-desc">Close Panels</span> <div class="keys"><kbd>Esc</kbd></div></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleShortcuts() {
+  const overlay = document.getElementById("shortcuts-overlay");
+  if (overlay) overlay.classList.toggle("hidden");
 }
 
 function togglePanel(panelName) {
@@ -274,37 +335,48 @@ function setAspectFromButton(ratio) {
   updateAspectUI();
   requestRender();
   scheduleCommit();
-
-  // --- HISTORY PUSH ---
   pushHistory("Aspect Change");
 }
 
 function handleKeyboard(e) {
   if (e.target.tagName === "INPUT") return;
 
-  // --- HISTORY SHORTCUTS START ---
   const cmd = e.metaKey || e.ctrlKey;
-  if (cmd && e.key === "z") {
-    e.preventDefault();
-    if (e.shiftKey) redo();
-    else undo();
+
+  // Undo / Redo Logic
+  if (cmd) {
+    if (e.key === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if (e.key === "y") {
+      e.preventDefault();
+      redo();
+      return;
+    }
+  }
+
+  // Shortcuts Overlay
+  if (e.key === "?") {
+    toggleShortcuts();
     return;
   }
-  if (cmd && e.key === "y") {
-    // Windows standard redo
-    e.preventDefault();
-    redo();
-    return;
-  }
-  // --- HISTORY SHORTCUTS END ---
 
   if (e.key === "g") toggleGrid();
   else if (e.key === "r") resetCrop();
   else if (e.key === "f") zoomToFit();
   else if (e.key === "1") zoomToActual();
   else if (e.key === "n") newImage();
-  else if (e.key === "Escape" && activePanel) togglePanel(activePanel);
-  else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") exportImage();
+  else if (e.key === "Escape") {
+    const shortcuts = document.getElementById("shortcuts-overlay");
+    if (shortcuts && !shortcuts.classList.contains("hidden")) {
+      toggleShortcuts();
+    } else if (activePanel) {
+      togglePanel(activePanel);
+    }
+  } else if (cmd && e.key === "Enter") exportImage();
 }
 
 function onViewportResize() {
