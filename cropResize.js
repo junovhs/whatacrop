@@ -55,32 +55,28 @@ function resizeFree(crop, handle, dx, dy, limits) {
 }
 
 function resizeLockedCorner(crop, handle, dx, dy, aspect, limits) {
-  // 1. Determine direction (-1 for Left/Top, 1 for Right/Bottom)
+  // 1. Determine direction signs (-1 or 1)
   const dirX = handle.includes("w") ? -1 : 1;
   const dirY = handle.includes("n") ? -1 : 1;
 
-  // 2. Calculate proposed change relative to box size (positive = growing)
-  const localDx = dx * dirX;
-  const localDy = dy * dirY;
+  // 2. Vector Projection: Project the mouse delta onto the Aspect Ratio Diagonal.
+  // This prevents jitter/axis-switching by using both dx and dy contributions.
+  // Formula: deltaW = (dx*dirX + dy*dirY/aspect) / (1 + 1/aspect^2)
 
-  // 3. Determine dominant axis to prevent "stuck" feeling
-  const xIsDominant = Math.abs(localDx) > Math.abs(localDy * aspect);
+  // Terms derived from dot product of MouseVector and DiagonalVector
+  const numerator = dx * dirX + (dy * dirY) / aspect;
+  const denominator = 1 + 1 / (aspect * aspect);
 
-  let proposedW, proposedH;
+  const wChange = numerator / denominator;
 
-  if (xIsDominant) {
-    proposedW = Math.max(MIN_CROP, crop.w + localDx);
-    proposedH = proposedW / aspect;
-  } else {
-    proposedH = Math.max(MIN_CROP, crop.h + localDy);
-    proposedW = proposedH * aspect;
-  }
+  const proposedW = Math.max(MIN_CROP, crop.w + wChange);
+  const proposedH = proposedW / aspect;
 
   applyLockedConstraint(crop, proposedW, proposedH, dirX, dirY, limits, aspect);
 }
 
 function resizeLockedEdge(crop, handle, dx, dy, aspect, limits) {
-  // Locked edges expand the perpendicular dimension to maintain ratio.
+  // For edges, we don't need projection because movement is 1D.
   // dirX/dirY define the "Growth Direction" relative to center.
   // 0 means it grows symmetrically from center on that axis.
   let dirX = 0;
@@ -121,68 +117,63 @@ function applyLockedConstraint(
   const { mw, mh } = limits;
 
   // 1. Calculate Available Space based on the Anchor Point.
-  // The "Anchor" is the side of the box that DOESN'T move.
-  // If dirX is -1 (growing Left), Anchor is Right Edge.
-  // If dirX is 0 (Center), Anchor is Center X.
+  // The "Anchor" is the side/point of the box that DOESN'T move.
+  // crop.x/y/w/h here are from the START of the drag (stable reference).
 
   let maxAvailableW = Infinity;
   let maxAvailableH = Infinity;
 
   // X Constraints
   if (dirX === -1) {
-    // Anchor is Right Edge (crop.x + crop.w). Space to Left is that value.
+    // Anchor is Right Edge. Max Width = Right Edge position.
     maxAvailableW = crop.x + crop.w;
   } else if (dirX === 1) {
-    // Anchor is Left Edge (crop.x). Space to Right is mw - crop.x.
+    // Anchor is Left Edge. Max Width = Image Width - Left Edge position.
     maxAvailableW = mw - crop.x;
   } else {
-    // Anchor is Center. Max Width is 2x distance to nearest edge.
+    // Anchor is Center. Max Width = 2 * (Distance from Center to nearest vertical edge).
     const cx = crop.x + crop.w / 2;
     maxAvailableW = Math.min(cx, mw - cx) * 2;
   }
 
   // Y Constraints
   if (dirY === -1) {
-    // Anchor is Bottom Edge.
     maxAvailableH = crop.y + crop.h;
   } else if (dirY === 1) {
-    // Anchor is Top Edge.
     maxAvailableH = mh - crop.y;
   } else {
-    // Anchor is Center.
     const cy = crop.y + crop.h / 2;
     maxAvailableH = Math.min(cy, mh - cy) * 2;
   }
 
-  // 2. Determine Limiting Dimension (Geometry + Aspect Ratio)
-  // We must fit in `maxAvailableW` AND `maxAvailableH`.
-  // Convert height-limit to width-limit using aspect ratio to compare.
-  const wAllowedByH = maxAvailableH * aspect;
-  const maxW = Math.min(maxAvailableW, wAllowedByH);
+  // 2. Determine Limiting Dimension
+  // The box must fit within BOTH maxAvailableW and maxAvailableH.
+  // We normalize maxAvailableH to width-units to find the bottleneck.
+  const maxW_from_H = maxAvailableH * aspect;
+  const maxW = Math.min(maxAvailableW, maxW_from_H);
 
-  // 3. Clamp
-  // Use the smaller of: the user's desired size OR the max geometric size
+  // 3. Clamp proposed size
   let finalW = Math.min(proposedW, maxW);
   let finalH = finalW / aspect;
 
   // 4. Calculate Final Position
-  // Now we apply the clamped size relative to the anchors.
   let newX = crop.x;
   let newY = crop.y;
 
   if (dirX === -1)
-    newX = crop.x + crop.w - finalW; // Right - W
+    newX = crop.x + crop.w - finalW; // Anchor Right
   else if (dirX === 1)
-    newX = crop.x; // Left stays
-  else newX = crop.x + crop.w / 2 - finalW / 2; // Center - W/2
+    newX = crop.x; // Anchor Left
+  else newX = crop.x + crop.w / 2 - finalW / 2; // Anchor Center
 
   if (dirY === -1)
-    newY = crop.y + crop.h - finalH; // Bottom - H
+    newY = crop.y + crop.h - finalH; // Anchor Bottom
   else if (dirY === 1)
-    newY = crop.y; // Top stays
-  else newY = crop.y + crop.h / 2 - finalH / 2; // Center - H/2
+    newY = crop.y; // Anchor Top
+  else newY = crop.y + crop.h / 2 - finalH / 2; // Anchor Center
 
-  // 5. Final Safety Clamp (floating point errors)
+  // 5. Commit
+  // We use strict clamping at the very end to correct any tiny float errors
   crop.w = finalW;
   crop.h = finalH;
   crop.x = clamp(newX, 0, mw - finalW);
