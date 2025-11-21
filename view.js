@@ -274,10 +274,30 @@ function setAspectFromButton(ratio) {
   updateAspectUI();
   requestRender();
   scheduleCommit();
+
+  // --- HISTORY PUSH ---
+  pushHistory("Aspect Change");
 }
 
 function handleKeyboard(e) {
   if (e.target.tagName === "INPUT") return;
+
+  // --- HISTORY SHORTCUTS START ---
+  const cmd = e.metaKey || e.ctrlKey;
+  if (cmd && e.key === "z") {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if (cmd && e.key === "y") {
+    // Windows standard redo
+    e.preventDefault();
+    redo();
+    return;
+  }
+  // --- HISTORY SHORTCUTS END ---
+
   if (e.key === "g") toggleGrid();
   else if (e.key === "r") resetCrop();
   else if (e.key === "f") zoomToFit();

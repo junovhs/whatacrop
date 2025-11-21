@@ -142,6 +142,9 @@ function selectPixelPreset(key, label, w, h) {
 
   requestRender();
   scheduleCommit();
+
+  // --- HISTORY PUSH ---
+  pushHistory(`Preset: ${label}`);
 }
 
 function applyCustomPixelPreset() {
@@ -175,6 +178,9 @@ function applyCustomPixelPreset() {
 
   requestRender();
   scheduleCommit();
+
+  // --- HISTORY PUSH ---
+  pushHistory(`Custom Pixel: ${w}x${h}`);
 }
 
 function updatePresetTriggers() {

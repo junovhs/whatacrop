@@ -72,6 +72,11 @@ function loadImageFile(file) {
           state.commitTimer = null;
         }
 
+        // --- HISTORY INIT START ---
+        initHistory();
+        pushHistory("Initial Load");
+        // --- HISTORY INIT END ---
+
         renderCropView();
 
         requestAnimationFrame(() => {
@@ -226,9 +231,14 @@ function endDrag() {
   window.removeEventListener("mousemove", handleDrag);
   window.removeEventListener("mouseup", endDrag);
 
+  // --- HISTORY PUSH START ---
   if (handle !== "pan-image") {
+    pushHistory("Crop Interact");
     scheduleCommit();
+  } else {
+    pushHistory("Pan Image");
   }
+  // --- HISTORY PUSH END ---
 }
 
 function resetCrop() {
@@ -239,6 +249,10 @@ function resetCrop() {
   validateCrop(state.crop);
   clearAllSelections();
   zoomToFit(true);
+
+  // --- HISTORY PUSH ---
+  pushHistory("Reset Crop");
+
   scheduleCommit();
 }
 

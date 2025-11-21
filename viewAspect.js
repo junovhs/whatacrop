@@ -22,6 +22,9 @@ function setAspectFromBar(ratio) {
 
   requestRender();
   scheduleCommit();
+
+  // --- HISTORY PUSH ---
+  pushHistory("Aspect Change");
 }
 
 function createAspectButtons() {
@@ -143,4 +146,7 @@ function applyCustomAspectInline() {
   applyAspectToCrop(ratio);
   requestRender();
   scheduleCommit();
+
+  // --- HISTORY PUSH ---
+  pushHistory("Custom Aspect");
 }
