@@ -1,9 +1,9 @@
-import { createAspectTools } from './aspect';
-import { createExportTools } from './export';
+import { createAspectTools } from "./aspect";
+import { createExportTools } from "./export";
 
 export function createCropView(): string {
-  // Ensure we call createAspectTools() which now definitely includes the preset dropdowns
-  return `
+	// Ensure we call createAspectTools() which now definitely includes the preset dropdowns
+	return `
     <div class="viewport" id="viewport">
       <canvas id="canvas"></canvas>
       <div class="crop-overlay" id="crop-overlay">
@@ -21,7 +21,7 @@ export function createCropView(): string {
 }
 
 function createHandles(): string {
-  return `
+	return `
     <div class="handle nw" data-handle="nw"></div><div class="handle ne" data-handle="ne"></div>
     <div class="handle sw" data-handle="sw"></div><div class="handle se" data-handle="se"></div>
     <div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div>
@@ -30,7 +30,7 @@ function createHandles(): string {
 }
 
 function createTopBar(): string {
-  return `
+	return `
     <div class="top-bar">
       <div class="top-bar-left">
         <div class="info-pill" id="source-info">-</div>
@@ -44,7 +44,7 @@ function createTopBar(): string {
 }
 
 function createBottomBar(): string {
-  return `
+	return `
     <div class="bottom-bar">
       <button class="tool-btn" onclick="window.app.toggleGrid()" title="Grid">G</button>
       <div class="zoom-group">
@@ -59,7 +59,7 @@ function createBottomBar(): string {
 }
 
 function createCropMetadata(): string {
-  return `
+	return `
     <div class="crop-metadata" id="crop-metadata">
       <div class="metadata-value" id="crop-dimensions">-</div>
       <div class="metadata-arrow"></div>

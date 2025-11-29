@@ -1,51 +1,8 @@
-🛡️ SYSTEM MANDATE: THE WARDEN PROTOCOL
-ROLE: High-Integrity Systems Architect (NASA/JPL Standard).
-CONTEXT: You are coding inside a strict environment enforced by Warden.
-
-THE 3 LAWS (Non-Negotiable):
-
-1. LAW OF ATOMICITY
-   - Files: MUST be < 2000 tokens.
-   - Action: Split immediately if larger.
-
-2. LAW OF COMPLEXITY
-   - Cyclomatic Complexity: MUST be ≤ 10 per function.
-   - Nesting Depth: MUST be ≤ 4 levels.
-   - Function Arguments: MUST be ≤ 5 parameters.
-
-3. LAW OF PARANOIA
-   - Use Result<T, E> for I/O and fallible operations.
-   - NO .unwrap() or .expect() calls.
-
-OUTPUT FORMAT (MANDATORY):
-
-When providing code files, use this exact format:
-
-1. Declare ALL files first:
-
-<delivery>
-path/to/file1.rs
-path/to/file2.rs [NEW]
-</delivery>
-
-2. Provide EACH file:
-
-<file path='path/to/file1.rs'>
-[complete file contents]
-</file>
-
-RULES:
-- Every file in <delivery> MUST have a matching <file> block
-- Do NOT use markdown code blocks - use <file> tags only
-- Do NOT truncate files
-- Paths must match exactly
-
-The `warden apply` command will REJECT incomplete deliveries.
-
-
-═══════════════════════════════════════════════════════════════════
-BEGIN CODEBASE
-═══════════════════════════════════════════════════════════════════
+<file path=".gitignore">
+node_modules
+dist
+.DS_Store
+*.local</file>
 
 <file path="LICENSE">
 MIT License
@@ -460,468 +417,455 @@ marketing and product visuals at the speed of real work.
 It stays small. It stays sharp. It feels like cheating compared to firing up a full design suite for simple, constant, production tasks.
 </file>
 
-<file path="cropLogic.js">
-"use strict";
+<file path="index.html">
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Image Crop Tool</title>
+        <link rel="stylesheet" href="./styles.css" />
+        <link rel="stylesheet" href="./stylesControls.css" />
+    </head>
+    <body>
+        <div id="app"></div>
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html></file>
 
-function loadImageFile(file) {
-  if (!file) {
-    console.error("loadImageFile: no file provided");
-    return;
+<file path="next-steps-notes.md">
+<ERROR READING FILE: No such file or directory (os error 2)>
+</file>
+
+<file path="package.json">
+{
+  "name": "whatacrop",
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "biome check src/"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
   }
+}</file>
 
-  assert(file instanceof File, "loadImageFile: not a File object");
+<file path="src/constants.ts">
+export const MIN_CROP = 20;
+export const COMMIT_DELAY = 350;
+export const CENTER_MARGIN = 0.15;
+export const TRANSITION_MS = 500;
+export const MAX_CANVAS_DIM = 16384;
+export const EPSILON = 0.001;
+export const MAX_ASPECT_VALUE = 100;
+export const MAX_PIXEL_DIM = 50000;
+export const PREVIEW_MAX_DIM = 4096;
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 32.0;
 
+export enum Mode {
+  NONE = "none",
+  ASPECT_RATIO = "aspect-ratio",
+  PIXEL_PRESET = "pixel-preset",
+  CUSTOM_PIXEL = "custom-pixel",
+}</file>
+
+<file path="src/logic/export.ts">
+import { state, validateCrop } from '../state';
+import { MAX_CANVAS_DIM } from '../constants';
+import { clamp, assert, reduceRatio } from '../utils';
+
+export function generateFilename(w: number, h: number): string {
+  const ratio = reduceRatio(w, h);
+  return `crop_${ratio.w}-${ratio.h}_${w}x${h}_${Date.now()}.png`;
+}
+
+export function createExportBlob(w: number, h: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    if (!state.image) return resolve(null);
+    validateCrop(state.crop);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return resolve(null);
+
+    const fullImg = state.fullImage || state.image;
+    const { x, y, w: sw, h: sh } = state.crop;
+    
+    const sx = clamp(x, 0, fullImg.naturalWidth - sw);
+    const sy = clamp(y, 0, fullImg.naturalHeight - sh);
+
+    ctx.drawImage(fullImg, sx, sy, sw, sh, 0, 0, w, h);
+    canvas.toBlob(blob => resolve(blob), "image/png", 1.0);
+  });
+}</file>
+
+<file path="src/logic/file-load.ts">
+import { state, validateCrop, clearAllSelections } from '../state';
+import { MAX_CANVAS_DIM, PREVIEW_MAX_DIM } from '../constants';
+import { Result, Ok, Err } from '../types';
+import { recalculateLayout } from './transform';
+import { renderLoadingView, renderCropView } from '../ui/init';
+import { requestRender } from '../ui/render';
+
+export function loadImageFile(file: File): void {
+  if (!file) return;
   renderLoadingView();
-
-  const hadPrev = !!state.image;
-  const prev = hadPrev
-    ? {
-        x: state.crop.x,
-        y: state.crop.y,
-        w: state.crop.w,
-        h: state.crop.h,
-        imgW: state.fullImage?.naturalWidth || state.image.naturalWidth,
-        imgH: state.fullImage?.naturalHeight || state.image.naturalHeight,
-      }
-    : null;
-
+  
   const reader = new FileReader();
-
-  reader.onerror = () => {
-    console.error("loadImageFile: FileReader error", reader.error);
-    alert("Failed to read file");
-    initAppView();
-  };
-
   reader.onload = (e) => {
+    if (typeof e.target?.result !== 'string') return;
     const img = new Image();
-
-    img.onerror = () => {
-      console.error("loadImageFile: Image load error");
-      alert("Failed to load image");
-      initAppView();
-    };
-
-    img.onload = () => {
-      assert(img.naturalWidth > 0, "loadImageFile: invalid image width");
-      assert(img.naturalHeight > 0, "loadImageFile: invalid image height");
-      assert(
-        img.naturalWidth <= MAX_CANVAS_DIM,
-        "loadImageFile: image width exceeds max",
-      );
-      assert(
-        img.naturalHeight <= MAX_CANVAS_DIM,
-        "loadImageFile: image height exceeds max",
-      );
-
-      const fullImage = img;
-      const maxDim = Math.max(fullImage.naturalWidth, fullImage.naturalHeight);
-
-      const finishLoad = (displayImage, previewScaleFactor) => {
-        state.fullImage = fullImage;
-        state.image = displayImage;
-        state.previewScale = previewScaleFactor;
-
-        if (hadPrev && prev && prev.imgW > 0 && prev.imgH > 0) {
-          preserveRelativeCrop(prev, fullImage);
-        } else {
-          resetCropToFull(fullImage);
-        }
-
-        clearAllSelections();
-        state.committing = false;
-        if (state.commitTimer) {
-          clearTimeout(state.commitTimer);
-          state.commitTimer = null;
-        }
-
-        // --- HISTORY INIT START ---
-        initHistory();
-        pushHistory("Initial Load");
-        // --- HISTORY INIT END ---
-
-        renderCropView();
-
-        requestAnimationFrame(() => {
-          fitImageToViewport();
-          requestRender();
-        });
-      };
-
-      if (maxDim > PREVIEW_MAX_DIM) {
-        const scale = PREVIEW_MAX_DIM / maxDim;
-        const previewW = Math.round(fullImage.naturalWidth * scale);
-        const previewH = Math.round(fullImage.naturalHeight * scale);
-
-        const previewCanvas = document.createElement("canvas");
-        previewCanvas.width = previewW;
-        previewCanvas.height = previewH;
-        const pctx = previewCanvas.getContext("2d");
-        pctx.drawImage(fullImage, 0, 0, previewW, previewH);
-
-        const previewImg = new Image();
-        previewImg.onload = () =>
-          finishLoad(
-            previewImg,
-            fullImage.naturalWidth / previewImg.naturalWidth,
-          );
-        previewImg.onerror = () => {
-          console.error("loadImageFile: Preview creation failed");
-          alert("Failed to process large image");
-          initAppView();
-        };
-        previewImg.src = previewCanvas.toDataURL();
-        return;
-      }
-
-      finishLoad(fullImage, 1);
-    };
-
+    img.onload = () => handleImageLoaded(img);
+    img.onerror = () => alert("Failed to load image");
     img.src = e.target.result;
   };
-
   reader.readAsDataURL(file);
 }
 
-function preserveRelativeCrop(prev, img) {
-  assert(prev, "preserveRelativeCrop: no prev");
-  assert(img, "preserveRelativeCrop: no img");
-
-  const relX = prev.x / prev.imgW;
-  const relY = prev.y / prev.imgH;
-  const relW = prev.w / prev.imgW;
-  const relH = prev.h / prev.imgH;
-
-  const newW = relW * img.naturalWidth;
-  const newH = relH * img.naturalHeight;
-  const newX = relX * img.naturalWidth;
-  const newY = relY * img.naturalHeight;
-
-  state.crop = {
-    x: clamp(newX, 0, Math.max(0, img.naturalWidth - newW)),
-    y: clamp(newY, 0, Math.max(0, img.naturalHeight - newH)),
-    w: Math.max(MIN_CROP, Math.min(newW, img.naturalWidth)),
-    h: Math.max(MIN_CROP, Math.min(newH, img.naturalHeight)),
-  };
-
-  validateCrop(state.crop);
-}
-
-function resetCropToFull(img) {
-  assert(img, "resetCropToFull: no img");
-
-  state.crop = {
-    x: 0,
-    y: 0,
-    w: img.naturalWidth,
-    h: img.naturalHeight,
-  };
-
-  validateCrop(state.crop);
-}
-
-function startDrag(e, handle) {
-  if (!state.image) return;
-  if (!handle) return;
-
-  assert(typeof handle === "string", "startDrag: handle must be string");
-
-  e.preventDefault();
-  e.stopPropagation();
-
-  beginInteract();
-
-  const overlay = document.getElementById("crop-overlay");
-  if (overlay) overlay.classList.add("dragging");
-
-  state.drag = {
-    handle,
-    startScreen: { x: e.clientX, y: e.clientY },
-    startCrop: { ...state.crop },
-    startTransform: { ...state.imageTransform },
-  };
-
-  assert(state.drag.startScreen.x !== undefined, "startDrag: invalid clientX");
-
-  window.addEventListener("mousemove", handleDrag);
-  window.addEventListener("mouseup", endDrag);
-}
-
-function handleDrag(e) {
-  if (!state.drag || !state.image) return;
-
-  const currentScale = state.baseScale * state.zoom;
-  assert(currentScale > 0, "handleDrag: invalid scale");
-
-  const dxScreen = e.clientX - state.drag.startScreen.x;
-  const dyScreen = e.clientY - state.drag.startScreen.y;
-
-  if (state.drag.handle === "move") {
-    const next = { ...state.drag.startCrop };
-    const dxImage = (dxScreen / currentScale) * state.previewScale;
-    const dyImage = (dyScreen / currentScale) * state.previewScale;
-    moveCrop(next, dxImage, dyImage);
-    state.crop = next;
-  } else if (state.drag.handle.startsWith("pan-")) {
-    state.imageTransform.tx = state.drag.startTransform.tx + dxScreen;
-    state.imageTransform.ty = state.drag.startTransform.ty + dyScreen;
+function handleImageLoaded(img: HTMLImageElement): void {
+  const valid = validateImageDimensions(img);
+  if (!valid.ok) {
+    alert(valid.error);
+    return;
+  }
+  
+  const fullImage = img;
+  const maxDim = Math.max(fullImage.naturalWidth, fullImage.naturalHeight);
+  
+  if (maxDim > PREVIEW_MAX_DIM) {
+    createPreview(fullImage).then(({ preview, scale }) => {
+      finalizeLoad(fullImage, preview, scale);
+    });
   } else {
-    const next = { ...state.drag.startCrop };
-    const dxImage = (dxScreen / currentScale) * state.previewScale;
-    const dyImage = (dyScreen / currentScale) * state.previewScale;
-    const aspectRatio =
-      state.mode === MODE.ASPECT_RATIO ||
-      state.mode === MODE.PIXEL_PRESET ||
-      state.mode === MODE.CUSTOM_PIXEL
-        ? state.aspectRatio
-        : 0;
-    resizeCrop(next, state.drag.handle, dxImage, dyImage, aspectRatio);
-    state.crop = next;
+    finalizeLoad(fullImage, fullImage, 1);
+  }
+}
+
+function validateImageDimensions(img: HTMLImageElement): Result<boolean, string> {
+  if (img.naturalWidth <= 0 || img.naturalHeight <= 0) return Err("Invalid dimensions");
+  if (img.naturalWidth > MAX_CANVAS_DIM || img.naturalHeight > MAX_CANVAS_DIM) return Err("Image too large");
+  return Ok(true);
+}
+
+function createPreview(full: HTMLImageElement): Promise<{ preview: HTMLImageElement; scale: number }> {
+  return new Promise((resolve) => {
+    const scale = PREVIEW_MAX_DIM / Math.max(full.naturalWidth, full.naturalHeight);
+    const w = Math.round(full.naturalWidth * scale);
+    const h = Math.round(full.naturalHeight * scale);
+    
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.drawImage(full, 0, 0, w, h);
+    
+    const preview = new Image();
+    preview.onload = () => resolve({ preview, scale: full.naturalWidth / preview.naturalWidth });
+    preview.src = canvas.toDataURL();
+  });
+}
+
+function finalizeLoad(full: HTMLImageElement, preview: HTMLImageElement, scale: number): void {
+  state.fullImage = full;
+  state.image = preview;
+  state.previewScale = scale;
+  
+  resetCropToFull(full);
+  clearAllSelections();
+  state.committing = false;
+  
+  renderCropView();
+  requestAnimationFrame(() => {
+    // CRITICAL FIX: Ensure viewport is measured before first fit
+    recalculateLayout(); 
+    requestRender();
+  });
+}
+
+export function resetCropToFull(img: HTMLImageElement): void {
+  state.crop = { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
+  validateCrop(state.crop);
+}</file>
+
+<file path="src/logic/history.ts">
+import { state, Snapshot, validateCrop } from '../state';
+import { requestRender } from '../ui/render';
+import { updatePresetTriggers } from '../ui/presets';
+import { syncExportInputsToCrop } from '../ui/export';
+import { EPSILON } from '../constants';
+
+const MAX_HISTORY = 50;
+
+export function initHistory(): void {
+  state.history = [];
+  state.historyIndex = -1;
+}
+
+export function pushHistory(label: string): void {
+  // If we are in the middle of the stack, chop off the future
+  if (state.historyIndex < state.history.length - 1) {
+    state.history = state.history.slice(0, state.historyIndex + 1);
   }
 
+  const snapshot = createSnapshot();
+
+  // Deduplication
+  if (state.historyIndex >= 0) {
+    const current = state.history[state.historyIndex];
+    if (areSnapshotsEqual(current, snapshot)) return;
+  }
+
+  state.history.push(snapshot);
+
+  if (state.history.length > MAX_HISTORY) {
+    state.history.shift();
+  } else {
+    state.historyIndex++;
+  }
+  
+  console.log(`[History] Pushed: ${label}`);
+}
+
+export function undo(): void {
+  if (state.historyIndex <= 0) return;
+
+  state.historyIndex--;
+  const prev = state.history[state.historyIndex];
+  restoreSnapshot(prev);
   requestRender();
 }
 
-function endDrag() {
-  if (!state.drag) return;
+export function redo(): void {
+  if (state.historyIndex >= state.history.length - 1) return;
 
-  const overlay = document.getElementById("crop-overlay");
-  if (overlay) overlay.classList.remove("dragging");
-
-  const handle = state.drag.handle;
-  state.drag = null;
-
-  window.removeEventListener("mousemove", handleDrag);
-  window.removeEventListener("mouseup", endDrag);
-
-  // --- HISTORY PUSH START ---
-  if (handle !== "pan-image") {
-    pushHistory("Crop Interact");
-    scheduleCommit();
-  } else {
-    pushHistory("Pan Image");
-  }
-  // --- HISTORY PUSH END ---
+  state.historyIndex++;
+  const next = state.history[state.historyIndex];
+  restoreSnapshot(next);
+  requestRender();
 }
 
-function resetCrop() {
-  if (!state.image) return;
-  beginInteract();
-  const targetImg = state.fullImage || state.image;
-  resetCropToFull(targetImg);
+function createSnapshot(): Snapshot {
+  return {
+    crop: { ...state.crop },
+    imageTransform: { ...state.imageTransform },
+    mode: state.mode,
+    aspectRatio: state.aspectRatio,
+    exportW: state.exportW,
+    exportH: state.exportH,
+    activePresetKey: state.activePresetKey,
+    timestamp: Date.now(),
+  };
+}
+
+function restoreSnapshot(snap: Snapshot | undefined): void {
+  if (!snap) return;
+
+  state.crop = { ...snap.crop };
+  state.imageTransform = { ...snap.imageTransform };
+  state.mode = snap.mode;
+  state.aspectRatio = snap.aspectRatio;
+  state.exportW = snap.exportW;
+  state.exportH = snap.exportH;
+  state.activePresetKey = snap.activePresetKey;
+
   validateCrop(state.crop);
-  clearAllSelections();
-  zoomToFit(true);
 
-  // --- HISTORY PUSH ---
-  pushHistory("Reset Crop");
-
-  scheduleCommit();
+  updatePresetTriggers();
+  syncExportInputsToCrop();
 }
 
-function newImage() {
-  if (state.commitTimer) clearTimeout(state.commitTimer);
-  state.image = null;
-  state.fullImage = null;
-  state.previewScale = 1;
-  clearAllSelections();
-  state.committing = false;
-  initAppView();
-}
-</file>
+function areSnapshotsEqual(a: Snapshot, b: Snapshot): boolean {
+  return (
+    Math.abs(a.crop.x - b.crop.x) < EPSILON &&
+    Math.abs(a.crop.y - b.crop.y) < EPSILON &&
+    Math.abs(a.crop.w - b.crop.w) < EPSILON &&
+    Math.abs(a.crop.h - b.crop.h) < EPSILON &&
+    a.mode === b.mode &&
+    Math.abs(a.aspectRatio - b.aspectRatio) < EPSILON
+  );
+}</file>
 
-<file path="cropResize.js">
-"use strict";
+<file path="src/logic/resize.ts">
+import { state, validateCrop } from '../state';
+import { assert, clamp, hasChanged } from '../utils';
+import { Mode, MIN_CROP, EPSILON } from '../constants';
+import { Rect } from '../types';
 
-function moveCrop(crop, dx, dy) {
+export function moveCrop(next: Rect, dx: number, dy: number): void {
   const img = state.fullImage || state.image;
-  assert(img, "moveCrop: no image");
-  assert(typeof crop.x === "number", "moveCrop: invalid crop x");
+  if (!img) return;
 
-  crop.x = clamp(crop.x + dx, 0, img.naturalWidth - crop.w);
-  crop.y = clamp(crop.y + dy, 0, img.naturalHeight - crop.h);
+  const maxX = Math.max(0, img.naturalWidth - next.w);
+  const maxY = Math.max(0, img.naturalHeight - next.h);
 
-  validateCrop(crop);
+  next.x = clamp(next.x + dx, 0, maxX);
+  next.y = clamp(next.y + dy, 0, maxY);
 }
 
-function resizeCrop(crop, handle, dx, dy, aspectRatio) {
+export function resizeCrop(next: Rect, start: Rect, handle: string, dx: number, dy: number): void {
   const img = state.fullImage || state.image;
-  assert(img, "resizeCrop: no image");
-  assert(typeof handle === "string", "resizeCrop: handle must be string");
-  assert(typeof aspectRatio === "number", "resizeCrop: aspect must be number");
+  if (!img) return;
 
-  const locked = aspectRatio > 0;
-  const limits = { mw: img.naturalWidth, mh: img.naturalHeight };
+  const locked = [Mode.ASPECT_RATIO, Mode.PIXEL_PRESET, Mode.CUSTOM_PIXEL].includes(state.mode);
+  const r = locked ? state.aspectRatio : 0;
 
-  if (locked) {
-    if (handle.length === 2) {
-      resizeLockedCorner(crop, handle, dx, dy, aspectRatio, limits);
-    } else {
-      resizeLockedEdge(crop, handle, dx, dy, aspectRatio, limits);
-    }
+  if (!locked || r <= 0) {
+    resizeFree(next, start, handle, dx, dy, img);
+  } else if (handle.length === 2) {
+    resizeCornerLocked(next, start, handle, dx, dy, img, r);
   } else {
-    resizeFree(crop, handle, dx, dy, limits);
+    resizeEdgeLocked(next, start, handle, dx, dy, img, r);
   }
-
-  validateCrop(crop);
 }
 
-function resizeFree(crop, handle, dx, dy, limits) {
-  const { mw, mh } = limits;
+export function applyAspectToCrop(ratio: number): void {
+  const img = state.fullImage || state.image;
+  if (!img) return;
+  
+  // 1. Validate ratio
+  if (ratio <= 0) return;
 
-  if (handle.includes("n")) {
-    const newH = clamp(crop.h - dy, MIN_CROP, crop.y + crop.h);
-    crop.y += crop.h - newH;
-    crop.h = newH;
+  const imgW = img.naturalWidth;
+  const imgH = img.naturalHeight;
+
+  // 2. Calculate max centered crop for this aspect ratio
+  let w = imgW;
+  let h = w / ratio;
+
+  if (h > imgH) {
+    h = imgH;
+    w = h * ratio;
   }
-  if (handle.includes("s")) {
-    crop.h = clamp(crop.h + dy, MIN_CROP, mh - crop.y);
-  }
+
+  // 3. Update state
+  state.crop = {
+    x: (imgW - w) / 2,
+    y: (imgH - h) / 2,
+    w,
+    h
+  };
+  
+  validateCrop(state.crop);
+}
+
+// Internal helpers (same as previous step)
+function resizeFree(next: Rect, start: Rect, handle: string, dx: number, dy: number, img: HTMLImageElement): void {
+  let { x, y, w, h } = start;
+
+  if (handle.includes("e")) w = clamp(start.w + dx, MIN_CROP, img.naturalWidth - start.x);
   if (handle.includes("w")) {
-    const newW = clamp(crop.w - dx, MIN_CROP, crop.x + crop.w);
-    crop.x += crop.w - newW;
-    crop.w = newW;
+    const right = start.x + start.w;
+    const maxDx = start.w - MIN_CROP;
+    x = clamp(start.x + Math.min(dx, maxDx), 0, right - MIN_CROP);
+    w = right - x;
   }
-  if (handle.includes("e")) {
-    crop.w = clamp(crop.w + dx, MIN_CROP, mw - crop.x);
+  if (handle.includes("s")) h = clamp(start.h + dy, MIN_CROP, img.naturalHeight - start.y);
+  if (handle.includes("n")) {
+    const bottom = start.y + start.h;
+    const maxDy = start.h - MIN_CROP;
+    y = clamp(start.y + Math.min(dy, maxDy), 0, bottom - MIN_CROP);
+    h = bottom - y;
   }
+
+  if (hasChanged(start, x, y, w, h)) Object.assign(next, { x, y, w, h });
 }
 
-function resizeLockedCorner(crop, handle, dx, dy, aspect, limits) {
-  // 1. Determine direction signs (-1 or 1)
-  const dirX = handle.includes("w") ? -1 : 1;
-  const dirY = handle.includes("n") ? -1 : 1;
+function resizeCornerLocked(next: Rect, start: Rect, handle: string, dx: number, dy: number, img: HTMLImageElement, r: number): void {
+  const startRight = start.x + start.w;
+  const startBottom = start.y + start.h;
+  const ax = handle.includes("w") ? startRight : start.x;
+  const ay = handle.includes("n") ? startBottom : start.y;
 
-  // 2. Vector Projection: Project the mouse delta onto the Aspect Ratio Diagonal.
-  // This prevents jitter/axis-switching by using both dx and dy contributions.
-  // Formula: deltaW = (dx*dirX + dy*dirY/aspect) / (1 + 1/aspect^2)
+  const rawDx = handle.includes("w") ? -dx : dx;
+  let w = Math.max(MIN_CROP, start.w + rawDx);
+  let h = w / r;
 
-  // Terms derived from dot product of MouseVector and DiagonalVector
-  const numerator = dx * dirX + (dy * dirY) / aspect;
-  const denominator = 1 + 1 / (aspect * aspect);
+  let x = handle.includes("w") ? ax - w : ax;
+  let y = handle.includes("n") ? ay - h : ay;
 
-  const wChange = numerator / denominator;
+  // Boundary checks
+  if (x < 0) { w = ax; h = w / r; x = 0; }
+  if (y < 0) { h = ay; w = h * r; y = 0; }
+  if (x + w > img.naturalWidth) { w = img.naturalWidth - x; h = w / r; }
+  if (y + h > img.naturalHeight) { h = img.naturalHeight - y; w = h * r; }
 
-  const proposedW = Math.max(MIN_CROP, crop.w + wChange);
-  const proposedH = proposedW / aspect;
+  // Double check clamp
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x + w > img.naturalWidth) w = img.naturalWidth - x;
+  if (y + h > img.naturalHeight) h = img.naturalHeight - y;
 
-  applyLockedConstraint(crop, proposedW, proposedH, dirX, dirY, limits, aspect);
+  if (w / r > h) w = h * r;
+  else h = w / r;
+
+  if (handle.includes("w")) x = ax - w;
+  if (handle.includes("n")) y = ay - h;
+
+  if (hasChanged(start, x, y, w, h)) Object.assign(next, { x, y, w, h });
 }
 
-function resizeLockedEdge(crop, handle, dx, dy, aspect, limits) {
-  // For edges, we don't need projection because movement is 1D.
-  // dirX/dirY define the "Growth Direction" relative to center.
-  // 0 means it grows symmetrically from center on that axis.
-  let dirX = 0;
-  let dirY = 0;
-  let proposedW = crop.w;
-  let proposedH = crop.h;
+function resizeEdgeLocked(next: Rect, start: Rect, handle: string, dx: number, dy: number, img: HTMLImageElement, r: number): void {
+  const cx = start.x + start.w / 2;
+  const cy = start.y + start.h / 2;
+  const startRight = start.x + start.w;
+  const startBottom = start.y + start.h;
 
-  if (handle === "n") {
-    dirY = -1; // Grows Up
-    proposedH = Math.max(MIN_CROP, crop.h - dy);
-    proposedW = proposedH * aspect;
-  } else if (handle === "s") {
-    dirY = 1; // Grows Down
-    proposedH = Math.max(MIN_CROP, crop.h + dy);
-    proposedW = proposedH * aspect;
-  } else if (handle === "w") {
-    dirX = -1; // Grows Left
-    proposedW = Math.max(MIN_CROP, crop.w - dx);
-    proposedH = proposedW / aspect;
-  } else if (handle === "e") {
-    dirX = 1; // Grows Right
-    proposedW = Math.max(MIN_CROP, crop.w + dx);
-    proposedH = proposedW / aspect;
+  let x = start.x;
+  let y = start.y;
+  let w = start.w;
+  let h = start.h;
+
+  if (handle === "e" || handle === "w") {
+    const sign = handle === "e" ? 1 : -1;
+    let potentialW = start.w + dx * sign;
+    const maxW_Img = handle === "e" ? img.naturalWidth - start.x : startRight;
+    const maxH_Available = 2 * Math.min(cy, img.naturalHeight - cy);
+    const maxW = Math.min(maxW_Img, maxH_Available * r);
+    w = clamp(potentialW, MIN_CROP, maxW);
+    h = w / r;
+    y = cy - h / 2;
+    x = handle === "e" ? start.x : startRight - w;
+  } else if (handle === "n" || handle === "s") {
+    const sign = handle === "s" ? 1 : -1;
+    let potentialH = start.h + dy * sign;
+    const maxH_Img = handle === "s" ? img.naturalHeight - start.y : startBottom;
+    const maxW_Available = 2 * Math.min(cx, img.naturalWidth - cx);
+    const maxH = Math.min(maxH_Img, maxW_Available / r);
+    h = clamp(potentialH, MIN_CROP, maxH);
+    w = h * r;
+    x = cx - w / 2;
+    y = handle === "s" ? start.y : startBottom - h;
   }
 
-  applyLockedConstraint(crop, proposedW, proposedH, dirX, dirY, limits, aspect);
-}
+  if (hasChanged(start, x, y, w, h)) Object.assign(next, { x, y, w, h });
+}</file>
 
-function applyLockedConstraint(
-  crop,
-  proposedW,
-  proposedH,
-  dirX,
-  dirY,
-  limits,
-  aspect,
-) {
-  const { mw, mh } = limits;
+<file path="src/logic/transform.ts">
+import { state } from '../state';
+import { CENTER_MARGIN, TRANSITION_MS, MIN_ZOOM, MAX_ZOOM, COMMIT_DELAY, EPSILON } from '../constants';
+import { clamp } from '../utils';
+import { requestRender } from '../ui/render';
+import { pushHistory } from './history';
 
-  // 1. Calculate Available Space based on the Anchor Point.
-  // The "Anchor" is the side/point of the box that DOESN'T move.
-  // crop.x/y/w/h here are from the START of the drag (stable reference).
-
-  let maxAvailableW = Infinity;
-  let maxAvailableH = Infinity;
-
-  // X Constraints
-  if (dirX === -1) {
-    // Anchor is Right Edge. Max Width = Right Edge position.
-    maxAvailableW = crop.x + crop.w;
-  } else if (dirX === 1) {
-    // Anchor is Left Edge. Max Width = Image Width - Left Edge position.
-    maxAvailableW = mw - crop.x;
-  } else {
-    // Anchor is Center. Max Width = 2 * (Distance from Center to nearest vertical edge).
-    const cx = crop.x + crop.w / 2;
-    maxAvailableW = Math.min(cx, mw - cx) * 2;
-  }
-
-  // Y Constraints
-  if (dirY === -1) {
-    maxAvailableH = crop.y + crop.h;
-  } else if (dirY === 1) {
-    maxAvailableH = mh - crop.y;
-  } else {
-    const cy = crop.y + crop.h / 2;
-    maxAvailableH = Math.min(cy, mh - cy) * 2;
-  }
-
-  // 2. Determine Limiting Dimension
-  // The box must fit within BOTH maxAvailableW and maxAvailableH.
-  // We normalize maxAvailableH to width-units to find the bottleneck.
-  const maxW_from_H = maxAvailableH * aspect;
-  const maxW = Math.min(maxAvailableW, maxW_from_H);
-
-  // 3. Clamp proposed size
-  let finalW = Math.min(proposedW, maxW);
-  let finalH = finalW / aspect;
-
-  // 4. Calculate Final Position
-  let newX = crop.x;
-  let newY = crop.y;
-
-  if (dirX === -1)
-    newX = crop.x + crop.w - finalW; // Anchor Right
-  else if (dirX === 1)
-    newX = crop.x; // Anchor Left
-  else newX = crop.x + crop.w / 2 - finalW / 2; // Anchor Center
-
-  if (dirY === -1)
-    newY = crop.y + crop.h - finalH; // Anchor Bottom
-  else if (dirY === 1)
-    newY = crop.y; // Anchor Top
-  else newY = crop.y + crop.h / 2 - finalH / 2; // Anchor Center
-
-  // 5. Commit
-  // We use strict clamping at the very end to correct any tiny float errors
-  crop.w = finalW;
-  crop.h = finalH;
-  crop.x = clamp(newX, 0, mw - finalW);
-  crop.y = clamp(newY, 0, mh - finalH);
-}
-</file>
-
-<file path="cropTransform.js">
-"use strict";
-
-function fitImageToViewport() {
+export function fitImageToViewport(): void {
   const img = state.image;
-  assert(img, "fitImageToViewport: no image");
-  assert(state.viewport.w > 0, "fitImageToViewport: invalid viewport width");
-  assert(state.viewport.h > 0, "fitImageToViewport: invalid viewport height");
+  if (!img) return;
+
+  if (state.viewport.w === 0 || state.viewport.h === 0) {
+    const vp = document.getElementById("viewport");
+    if (vp) {
+      state.viewport.w = vp.clientWidth;
+      state.viewport.h = vp.clientHeight;
+    }
+  }
 
   const imgW = img.naturalWidth;
   const imgH = img.naturalHeight;
@@ -933,22 +877,17 @@ function fitImageToViewport() {
     (state.viewport.w - marginW) / imgW,
     (state.viewport.h - marginH) / imgH,
   );
-  const tx = (state.viewport.w - imgW * scale) / 2;
-  const ty = (state.viewport.h - imgH * scale) / 2;
-
-  assert(scale > 0, "fitImageToViewport: scale must be positive");
-
+  
   state.baseScale = scale;
   state.zoom = 1.0;
-  state.imageTransform.tx = tx;
-  state.imageTransform.ty = ty;
+  state.imageTransform.tx = (state.viewport.w - imgW * scale) / 2;
+  state.imageTransform.ty = (state.viewport.h - imgH * scale) / 2;
 }
 
-function recalculateLayout() {
+export function recalculateLayout(): void {
   if (!state.image) return;
-  const { w: oldVpW, h: oldVpH } = state.viewport;
-  const { tx: oldTx, ty: oldTy } = state.imageTransform;
-  const oldBaseScale = state.baseScale;
+  const oldVpW = state.viewport.w;
+  const oldVpH = state.viewport.h;
   const oldZoom = state.zoom;
 
   const viewport = document.getElementById("viewport");
@@ -956,68 +895,44 @@ function recalculateLayout() {
   state.viewport.w = viewport.clientWidth;
   state.viewport.h = viewport.clientHeight;
 
-  const oldScale = oldBaseScale * oldZoom;
-  const centerX_img = (oldVpW / 2 - oldTx) / oldScale;
-  const centerY_img = (oldVpH / 2 - oldTy) / oldScale;
+  if (oldVpW === 0 || oldVpH === 0) {
+    fitImageToViewport();
+    requestRender();
+    return;
+  }
 
-  const img = state.image;
-  const marginW = state.viewport.w * CENTER_MARGIN * 2;
-  const marginH = state.viewport.h * CENTER_MARGIN * 2;
-  const newBaseScale = Math.min(
-    1,
-    (state.viewport.w - marginW) / img.naturalWidth,
-    (state.viewport.h - marginH) / img.naturalHeight,
-  );
-  state.baseScale = newBaseScale;
+  const oldScale = state.baseScale * oldZoom;
+  const cx = (oldVpW / 2 - state.imageTransform.tx) / oldScale;
+  const cy = (oldVpH / 2 - state.imageTransform.ty) / oldScale;
 
+  fitImageToViewport();
+  
+  const newBaseScale = state.baseScale;
   const newScale = newBaseScale * oldZoom;
-  const newTx = state.viewport.w / 2 - centerX_img * newScale;
-  const newTy = state.viewport.h / 2 - centerY_img * newScale;
+  const newTx = state.viewport.w / 2 - cx * newScale;
+  const newTy = state.viewport.h / 2 - cy * newScale;
 
-  animateToTransform({ tx: newTx, ty: newTy }, true);
+  animateToTransform({ tx: newTx, ty: newTy, zoom: oldZoom }, true);
 }
 
-function computeCenteredTransform() {
+export function computeCenteredTransform(): { tx: number; ty: number } | null {
   const img = state.image;
-  if (!img || !state.viewport.w || !state.viewport.h) return null;
+  if (!img) return null;
 
   const { x, y, w, h } = state.crop;
   const { tx, ty } = state.imageTransform;
   const currentScale = state.baseScale * state.zoom;
+  
+  const cropCxScreen = tx + ((x + w / 2) / state.previewScale) * currentScale;
+  const cropCyScreen = ty + ((y + h / 2) / state.previewScale) * currentScale;
 
-  assert(currentScale > 0, "computeCenteredTransform: invalid scale");
-  validateCrop(state.crop);
-
-  const cropCxOnPreview = (x + w / 2) / state.previewScale;
-  const cropCyOnPreview = (y + h / 2) / state.previewScale;
-  const cropCxScreen = tx + cropCxOnPreview * currentScale;
-  const cropCyScreen = ty + cropCyOnPreview * currentScale;
-
-  const viewportCx = state.viewport.w / 2;
-  const viewportCy = state.viewport.h / 2;
-
-  let dx = viewportCx - cropCxScreen;
-  let dy = viewportCy - cropCyScreen;
-
-  const marginX = state.viewport.w * CENTER_MARGIN;
-  const marginY = state.viewport.h * CENTER_MARGIN;
-  const left = tx + (x / state.previewScale) * currentScale + dx;
-  const top = ty + (y / state.previewScale) * currentScale + dy;
-  const right = left + (w / state.previewScale) * currentScale;
-  const bottom = top + (h / state.previewScale) * currentScale;
-
-  if (left < marginX) dx += marginX - left;
-  if (right > state.viewport.w - marginX)
-    dx -= right - (state.viewport.w - marginX);
-  if (top < marginY) dy += marginY - top;
-  if (bottom > state.viewport.h - marginY)
-    dy -= bottom - (state.viewport.h - marginY);
+  const dx = (state.viewport.w / 2) - cropCxScreen;
+  const dy = (state.viewport.h / 2) - cropCyScreen;
 
   return { tx: tx + dx, ty: ty + dy };
 }
 
-function animateToTransform(target, immediate = false) {
-  if (!target) return;
+export function animateToTransform(target: { tx?: number; ty?: number; zoom?: number }, immediate = false): void {
   if (immediate) {
     if (target.tx !== undefined) state.imageTransform.tx = target.tx;
     if (target.ty !== undefined) state.imageTransform.ty = target.ty;
@@ -1042,36 +957,38 @@ function animateToTransform(target, immediate = false) {
   }, 16);
 }
 
-function scheduleCommit() {
-  if (state.commitTimer) clearTimeout(state.commitTimer);
-
-  state.commitTimer = setTimeout(() => {
-    state.commitTimer = null;
-    if (!state.image) return;
-    const target = computeCenteredTransform();
-    animateToTransform(target);
-  }, COMMIT_DELAY);
-}
-
-function setZoom(targetZoom, focalPoint) {
+export function setZoom(targetZoom: number, focalPoint: { x: number; y: number }): void {
   const newZoom = clamp(targetZoom, MIN_ZOOM, MAX_ZOOM);
   if (Math.abs(newZoom - state.zoom) < EPSILON) return;
 
   const s1 = state.baseScale * state.zoom;
   const s2 = state.baseScale * newZoom;
   const { tx: tx1, ty: ty1 } = state.imageTransform;
-  const { x: fx, y: fy } = focalPoint;
+  
+  const ix = (focalPoint.x - tx1) / s1;
+  const iy = (focalPoint.y - ty1) / s1;
 
-  const ix = (fx - tx1) / s1;
-  const iy = (fy - ty1) / s1;
-
-  const tx2 = fx - ix * s2;
-  const ty2 = fy - iy * s2;
+  const tx2 = focalPoint.x - ix * s2;
+  const ty2 = focalPoint.y - iy * s2;
 
   animateToTransform({ tx: tx2, ty: ty2, zoom: newZoom }, true);
 }
 
-function zoomToFit(immediate = false) {
+export function scheduleCommit(): void {
+  if (state.commitTimer) clearTimeout(state.commitTimer);
+  state.commitTimer = window.setTimeout(() => {
+    state.commitTimer = null;
+    if (!state.image) return;
+    
+    // History push on commit
+    pushHistory("Commit Crop");
+    
+    const target = computeCenteredTransform();
+    if (target) animateToTransform(target);
+  }, COMMIT_DELAY);
+}
+
+export function zoomToFit(immediate = false): void {
   if (!state.image) return;
   const { w: cropW, h: cropH } = state.crop;
   const cropDisplayW = cropW / state.previewScale;
@@ -1079,6 +996,8 @@ function zoomToFit(immediate = false) {
 
   const marginW = state.viewport.w * CENTER_MARGIN * 2;
   const marginH = state.viewport.h * CENTER_MARGIN * 2;
+
+  if (cropDisplayW === 0 || cropDisplayH === 0) return;
 
   const targetZoom = Math.min(
     (state.viewport.w - marginW) / cropDisplayW / state.baseScale,
@@ -1089,664 +1008,115 @@ function zoomToFit(immediate = false) {
   if (target) {
     animateToTransform({ ...target, zoom: targetZoom }, immediate);
   }
-}
+}</file>
 
-function zoomToActual(immediate = false) {
-  if (!state.image) return;
+<file path="src/main.ts">
+import { initAppView } from './ui/init';
+import { setAspect, toggleCustomAspect, applyCustomAspect } from './ui/aspect';
+import { togglePreset, selectPreset, applyCustomPixel } from './ui/presets';
+import { exportImage } from './ui/export';
+import { resetCropToFull } from './logic/file-load';
+import { state } from './state';
+import { zoomToFit, setZoom, scheduleCommit } from './logic/transform';
+import { requestRender } from './ui/render';
 
-  const targetZoom = state.previewScale / state.baseScale;
-
-  const focalPoint = { x: state.viewport.w / 2, y: state.viewport.h / 2 };
-  const s1 = state.baseScale * state.zoom;
-  const s2 = state.baseScale * targetZoom;
-  const { tx: tx1, ty: ty1 } = state.imageTransform;
-  const { x: fx, y: fy } = focalPoint;
-  const ix = (fx - tx1) / s1;
-  const iy = (fy - ty1) / s1;
-  const targetTx = fx - ix * s2;
-  const targetTy = fy - iy * s2;
-
-  animateToTransform(
-    { tx: targetTx, ty: targetTy, zoom: targetZoom },
-    immediate,
-  );
-}
-
-function beginInteract() {
-  if (state.commitTimer) clearTimeout(state.commitTimer);
-  state.committing = false;
-  requestRender();
-}
-
-function applyAspectToCrop(ratio) {
-  const img = state.fullImage || state.image;
-  assert(img, "applyAspectToCrop: no image");
-  assert(ratio > 0, "applyAspectToCrop: ratio must be positive");
-  validateAspectRatio(ratio);
-
-  const imgW = img.naturalWidth;
-  const imgH = img.naturalHeight;
-  let w, h;
-  if (imgW / imgH > ratio) {
-    h = imgH;
-    w = h * ratio;
-  } else {
-    w = imgW;
-    h = w / ratio;
-  }
-
-  assert(w > 0 && w <= imgW, "applyAspectToCrop: invalid width");
-  assert(h > 0 && h <= imgH, "applyAspectToCrop: invalid height");
-
-  state.crop = { x: (imgW - w) / 2, y: (imgH - h) / 2, w, h };
-  validateCrop(state.crop);
-}
-</file>
-
-<file path="exporter.js">
-"use strict";
-
-function exportImage() {
-  if (!state.image) {
-    console.warn("exportImage: no image loaded");
-    return;
-  }
-  const wInput = document.getElementById("export-w");
-  const hInput = document.getElementById("export-h");
-  if (!wInput || !hInput) {
-    console.error("exportImage: missing export inputs");
-    return;
-  }
-  const w = parseInt(wInput.value, 10);
-  const h = parseInt(hInput.value, 10);
-  if (!(w > 0 && h > 0)) {
-    console.warn("exportImage: invalid export dimensions");
-    alert("Please enter valid export dimensions");
-    return;
-  }
-  validatePixelDimension(w);
-  validatePixelDimension(h);
-  const sourceImage = state.fullImage || state.image;
-  const { x, y, w: cropW, h: cropH } = state.crop;
-  const exportCanvas = document.createElement("canvas");
-  exportCanvas.width = w;
-  exportCanvas.height = h;
-  const ctx = exportCanvas.getContext("2d");
-  if (!ctx) {
-    console.error("exportImage: failed to get canvas context");
-    return;
-  }
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(sourceImage, x, y, cropW, cropH, 0, 0, w, h);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-  const g = gcd(w, h);
-  const aspectW = w / g;
-  const aspectH = h / g;
-  const filename = `crop_${w}x${h}_${aspectW}-${aspectH}_${timestamp}.png`;
-  exportCanvas.toBlob((blob) => {
-    if (!blob) {
-      console.error("exportImage: failed to create blob");
-      alert("Export failed");
-      return;
+// Expose globals for HTML event handlers
+(window as any).app = {
+  setAspect,
+  toggleCustomAspect,
+  applyCustomAspect,
+  togglePreset,
+  selectPreset,
+  applyCustomPixel,
+  exportImage,
+  
+  resetCrop: () => {
+    if (state.image) {
+      resetCropToFull(state.fullImage || state.image);
+      requestRender(); // Fix: Update immediately
+      scheduleCommit(); // Fix: Center the image after reset
     }
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 100);
-  }, "image/png");
-}
-
-function syncExportInputsToCrop() {
-  if (!state.image) return;
-
-  const wInput = document.getElementById("export-w");
-  const hInput = document.getElementById("export-h");
-  if (!wInput || !hInput) return;
-
-  const { w, h } = state.crop;
-  const actualW = Math.round(w);
-  const actualH = Math.round(h);
-
-  if (state.exportW && state.exportH) {
-    wInput.value = state.exportW;
-    hInput.value = state.exportH;
-  } else {
-    wInput.value = String(actualW);
-    hInput.value = String(actualH);
+  },
+  
+  toggleGrid: () => { 
+    state.showGrid = !state.showGrid;
+    requestRender(); // Fix: Update immediately
+  },
+  
+  zoomToFit: () => {
+    zoomToFit();
+    requestRender();
+  },
+  
+  zoomToActual: () => {
+    setZoom(state.previewScale / state.baseScale, { x: state.viewport.w/2, y: state.viewport.h/2 });
+    requestRender();
+  },
+  
+  newImage: () => location.reload(),
+  
+  onExportInput: (dim: string, val: string) => {
+    if (dim === 'w') state.exportW = val;
+    else state.exportH = val;
+    requestRender();
   }
-}
-
-function onExportInput(dimension, value) {
-  if (!state.image) return;
-
-  const val = parseInt(value, 10);
-  if (isNaN(val) || val <= 0) return;
-
-  const wInput = document.getElementById("export-w");
-  const hInput = document.getElementById("export-h");
-  if (!wInput || !hInput) return;
-
-  const locked =
-    state.mode === MODE.ASPECT_RATIO ||
-    state.mode === MODE.PIXEL_PRESET ||
-    state.mode === MODE.CUSTOM_PIXEL;
-
-  if (locked && state.aspectRatio > 0) {
-    if (dimension === "w") {
-      state.exportW = String(val);
-      const newH = Math.round(val / state.aspectRatio);
-      state.exportH = String(newH);
-      hInput.value = String(newH);
-    } else {
-      state.exportH = String(val);
-      const newW = Math.round(val * state.aspectRatio);
-      state.exportW = String(newW);
-      wInput.value = String(newW);
-    }
-  } else {
-    if (dimension === "w") {
-      state.exportW = String(val);
-    } else {
-      state.exportH = String(val);
-    }
-  }
-
-  updateScaleIndicator();
-}
-</file>
-
-<file path="history.js">
-"use strict";
-
-const MAX_HISTORY = 50;
-
-function initHistory() {
-  state.history = [];
-  state.historyIndex = -1;
-}
-
-function pushHistory(label) {
-  // If we are in the middle of the stack (undid some steps),
-  // chop off the future. We are creating a new timeline.
-  if (state.historyIndex < state.history.length - 1) {
-    state.history = state.history.slice(0, state.historyIndex + 1);
-  }
-
-  const snapshot = createSnapshot();
-
-  // Deduplication: Don't push if it's identical to the current tip
-  // This happens sometimes with minor mouse jitters or rapid clicks
-  if (state.historyIndex >= 0) {
-    const current = state.history[state.historyIndex];
-    if (areSnapshotsEqual(current, snapshot)) return;
-  }
-
-  state.history.push(snapshot);
-
-  // Bound the stack size (Circular buffer-ish behavior)
-  if (state.history.length > MAX_HISTORY) {
-    state.history.shift();
-  } else {
-    state.historyIndex++;
-  }
-
-  console.log(
-    `[History] Pushed: ${label} (${state.historyIndex + 1}/${state.history.length})`,
-  );
-}
-
-function undo() {
-  if (state.historyIndex <= 0) {
-    console.warn("[History] Nothing to undo");
-    return;
-  }
-
-  state.historyIndex--;
-  const prev = state.history[state.historyIndex];
-  restoreSnapshot(prev);
-  requestRender();
-}
-
-function redo() {
-  if (state.historyIndex >= state.history.length - 1) {
-    console.warn("[History] Nothing to redo");
-    return;
-  }
-
-  state.historyIndex++;
-  const next = state.history[state.historyIndex];
-  restoreSnapshot(next);
-  requestRender();
-}
-
-function createSnapshot() {
-  // Deep copy only what affects the visual output
-  return {
-    crop: { ...state.crop },
-    imageTransform: { ...state.imageTransform },
-    mode: state.mode,
-    aspectRatio: state.aspectRatio,
-    exportW: state.exportW,
-    exportH: state.exportH,
-    activePresetKey: state.activePresetKey,
-    // We don't track zoom/pan in history usually, but we DO track
-    // imageTransform if we want to undo pans. Let's track it all.
-    timestamp: Date.now(),
-  };
-}
-
-function restoreSnapshot(snap) {
-  if (!snap) return;
-
-  state.crop = { ...snap.crop };
-  state.imageTransform = { ...snap.imageTransform };
-
-  // Restore modes and flags
-  state.mode = snap.mode;
-  state.aspectRatio = snap.aspectRatio;
-  state.exportW = snap.exportW;
-  state.exportH = snap.exportH;
-  state.activePresetKey = snap.activePresetKey;
-
-  // Re-run validation to ensure UI stays synced
-  validateCrop(state.crop);
-
-  // UI Updates
-  updateAspectUI();
-  updatePresetTriggers();
-  syncExportInputsToCrop();
-
-  // Trigger a smooth re-center if the crop jumped significantly
-  // or just let renderFrame handle it. For undo, instant is usually better.
-}
-
-function areSnapshotsEqual(a, b) {
-  // Fast comparison for critical values
-  return (
-    Math.abs(a.crop.x - b.crop.x) < EPSILON &&
-    Math.abs(a.crop.y - b.crop.y) < EPSILON &&
-    Math.abs(a.crop.w - b.crop.w) < EPSILON &&
-    Math.abs(a.crop.h - b.crop.h) < EPSILON &&
-    a.mode === b.mode &&
-    Math.abs(a.aspectRatio - b.aspectRatio) < EPSILON
-  );
-}
-</file>
-
-<file path="index.html">
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Image Crop Tool</title>
-        <link rel="stylesheet" href="styles.css" />
-    </head>
-    <body>
-        <div id="app"></div>
-
-        <!-- Load in dependency order -->
-        <script src="state.js"></script>
-        <script src="history.js"></script>
-        <script src="cropTransform.js"></script>
-        <script src="cropResize.js"></script>
-        <script src="cropLogic.js"></script>
-        <script src="viewPresets.js"></script>
-        <script src="viewAspect.js"></script>
-        <script src="view.js"></script>
-        <script src="exporter.js"></script>
-        <script src="main.js"></script>
-    </body>
-</html>
-</file>
-
-<file path="main.js">
-"use strict";
+};
 
 document.addEventListener("DOMContentLoaded", () => {
   initAppView();
-  setupGlobalDrop();
-});
+});</file>
 
-function setupGlobalDrop() {
-  let dragDepth = 0;
-  const MAX_DRAG_DEPTH = 100;
+<file path="src/state.ts">
+import { Mode, MIN_CROP, EPSILON } from './constants';
+import { Rect, Viewport, ImageTransform, DragState, Result, Ok, Err } from './types';
 
-  ["dragenter", "dragleave", "dragover", "drop"].forEach((type) => {
-    document.addEventListener(type, (e) => {
-      if (!e.dataTransfer || !e.dataTransfer.types) return;
-
-      const hasFiles = Array.from(e.dataTransfer.types).includes("Files");
-      if (!hasFiles) return;
-
-      e.preventDefault();
-
-      if (type === "dragenter") {
-        dragDepth += 1;
-
-        if (dragDepth > MAX_DRAG_DEPTH) {
-          console.warn("setupGlobalDrop: drag depth exceeded, resetting");
-          dragDepth = MAX_DRAG_DEPTH;
-        }
-
-        showDropHint();
-      } else if (type === "dragleave") {
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) hideDropHint();
-      } else if (type === "drop") {
-        dragDepth = 0;
-        hideDropHint();
-        handleFileDrop(e);
-      }
-    });
-  });
+export interface Snapshot {
+  crop: Rect;
+  imageTransform: ImageTransform;
+  mode: Mode;
+  aspectRatio: number;
+  exportW: string;
+  exportH: string;
+  activePresetKey: string | null;
+  timestamp: number;
 }
 
-function handleFileDrop(e) {
-  const dt = e.dataTransfer;
-
-  if (!dt || !dt.files || dt.files.length === 0) {
-    console.warn("handleFileDrop: no files in drop");
-    return;
-  }
-
-  const file = dt.files[0];
-
-  if (!file || !file.type || !file.type.startsWith("image/")) {
-    console.warn("handleFileDrop: not an image file");
-    return;
-  }
-
-  if (state.image) {
-    loadImageFile(file);
-    return;
-  }
-
-  const dropZone = document.getElementById("drop-zone");
-  if (!dropZone) {
-    loadImageFile(file);
-    return;
-  }
-
-  const rect = dropZone.getBoundingClientRect();
-  const x = e.clientX;
-  const y = e.clientY;
-
-  if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-    loadImageFile(file);
-  }
+export interface AppState {
+  image: HTMLImageElement | null;
+  fullImage: HTMLImageElement | null;
+  previewScale: number;
+  crop: Rect;
+  viewport: Viewport;
+  imageTransform: ImageTransform;
+  baseScale: number;
+  zoom: number;
+  drag: DragState | null;
+  committing: boolean;
+  commitTimer: number | null;
+  needsRender: boolean;
+  mode: Mode;
+  aspectRatio: number;
+  exportW: string;
+  exportH: string;
+  activePresetKey: string | null;
+  presetLabels: Record<string, string>;
+  customAspectActive: boolean;
+  customAspectW: string;
+  customAspectH: string;
+  customAspectLabel: string;
+  customPixelActive: boolean;
+  customPixelW: string;
+  customPixelH: string;
+  showGrid: boolean;
+  scaleFactor: number;
+  scaleLevel: string;
+  
+  // History
+  history: Snapshot[];
+  historyIndex: number;
 }
 
-function showDropHint() {
-  let hint = document.getElementById("global-drop-hint");
-
-  if (!hint) {
-    hint = document.createElement("div");
-    hint.id = "global-drop-hint";
-    hint.className = "global-drop-hint";
-    document.body.appendChild(hint);
-  }
-
-  hint.textContent = state.image
-    ? "Drop image to replace"
-    : "Drop image to start";
-  hint.classList.add("visible");
-}
-
-function hideDropHint() {
-  const hint = document.getElementById("global-drop-hint");
-  if (!hint) return;
-
-  hint.classList.remove("visible");
-
-  setTimeout(() => {
-    if (hint.parentNode && !hint.classList.contains("visible")) {
-      hint.parentNode.removeChild(hint);
-    }
-  }, 150);
-}
-</file>
-
-<file path="next-steps-notes.md">
-Yeah, you’re absolutely running into “physics of the browser” territory here 😄
-
-Short version:
-
-* A **10k–20kpx canvas** is *insanely* heavy.
-* Your current code is doing a couple of things that make it much worse. 
-* The way to make it feel buttery smooth is to **separate “preview” from “full-res”** instead of trying to interact with the full 20k×20k image directly.
-
-Let me walk through what’s going on and what you can do.
-
----
-
-## 1. Why 10k+ feels stuttery (in your actual code)
-
-From your `renderFrame()`:
-
-```js
-const img = state.image;
-canvas.width = img.naturalWidth;
-canvas.height = img.naturalHeight;
-ctx.clearRect(0, 0, canvas.width, canvas.height);
-ctx.drawImage(img, 0, 0);
-```
-
-Then you apply a CSS transform to scale it into the viewport. 
-
-That means:
-
-* A 10k × 10k canvas = **100,000,000 pixels**.
-* At 4 bytes per pixel (RGBA), that’s ~400 MB of pixel data… every time you resize / reallocate.
-* You’re doing both:
-
-  * **Huge canvas dimensions**, *and*
-  * **Redrawing the whole image** every frame as the user drags/resizes the crop.
-
-Plus, your `MAX_CANVAS_DIM` is `16384`, which mirrors typical GPU texture limits. A **20k × 20k** canvas is literally above what many GPUs will allow in a single texture. 
-
-So: it’s not that your JS is “too weak”; it’s that you’re asking the browser to push a brick wall.
-
----
-
-## 2. The real solution: preview vs full-res
-
-The pattern professional tools use is:
-
-> **Small, super-fast preview for interaction**
-> **Full-resolution source only for export**
-
-You’re already doing the second half correctly in `exportImage()` — you create a separate offscreen canvas sized to the export and draw from `state.image` there. 
-
-What you need is:
-
-### Step A – Keep two images
-
-* `state.fullImage` → the original, 20k×20k monster
-* `state.previewImage` (or just reuse `state.image`) → a downscaled copy used *only for UI drawing*
-
-When you load an image in `loadImageFile`:
-
-```js
-const PREVIEW_MAX_DIM = 4096; // or 8192, tune as needed
-
-function loadImageFile(file) {
-  // ...your existing FileReader logic...
-
-  img.onload = () => {
-    const imgW = img.naturalWidth;
-    const imgH = img.naturalHeight;
-
-    state.fullImage = img; // always keep original
-
-    const maxDim = Math.max(imgW, imgH);
-    if (maxDim <= PREVIEW_MAX_DIM) {
-      state.image = img;
-      state.previewScale = 1;
-    } else {
-      const scale = PREVIEW_MAX_DIM / maxDim;
-      const w = Math.round(imgW * scale);
-      const h = Math.round(imgH * scale);
-
-      const previewCanvas = document.createElement("canvas");
-      previewCanvas.width = w;
-      previewCanvas.height = h;
-      const pctx = previewCanvas.getContext("2d");
-      pctx.drawImage(img, 0, 0, w, h);
-
-      const previewImg = new Image();
-      previewImg.onload = () => {
-        state.image = previewImg;      // use this for UI
-        state.previewScale = scale;    // link preview → full-res
-        // now do your existing crop init & render
-        // preserveRelativeCrop/resetCropToFull, fitImageToViewport, requestRender, etc.
-      };
-      previewImg.src = previewCanvas.toDataURL("image/png");
-    }
-  };
-}
-```
-
-Now all your **interactive stuff** (`renderFrame`, drag, resize) runs against a **much smaller image**, e.g. 4k instead of 20k.
-
-### Step B – Keep crop coords in preview space, export from full-res
-
-Right now your crop is in `state.crop` and assumed to be in `state.image` pixel space. You can keep that — just treat `state.image` as the preview.
-
-Then, in `exportImage()`, when you actually draw the image to the offscreen canvas, convert the crop back into full-res coordinates:
-
-```js
-const scale = state.previewScale || 1; // 1 if already full-size
-
-// crop in preview coords
-const { x, y, w: cw, h: ch } = state.crop;
-
-// source crop in full-res coords
-const srcX = x / scale;
-const srcY = y / scale;
-const srcW = cw / scale;
-const srcH = ch / scale;
-
-ctx.drawImage(
-  state.fullImage || state.image, // fall back just in case
-  srcX, srcY, srcW, srcH,
-  0, 0, w, h
-);
-```
-
-Result:
-
-* UI always manipulates a **small, fast texture**.
-* Export still pulls from the **original full-res** image.
-* You can happily open a 20k×20k source, and the browser only ever displays, say, 4096px max on the canvas.
-
-This one change gets you **90% of the “buttery” feeling** you want.
-
----
-
-## 3. Cheap wins inside your existing canvas logic
-
-Even without going full preview/full-res right away, here are some easy improvements:
-
-### Only resize/redraw the canvas when needed
-
-In `renderFrame()`:
-
-```js
-if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  ctx.drawImage(img, 0, 0);
-}
-// If the image itself hasn't changed, you often don't need to redraw each frame;
-// you can sometimes just move the overlay.
-```
-
-This alone avoids reallocating that giant pixel buffer every frame.
-
-### Don’t do heavy DOM work every frame
-
-At the end of `renderFrame()` you call a bunch of functions that touch the DOM: `updateCropInfo()`, `updatePresetTriggers()`, `syncExportInputsToCrop()`, `updateScaleIndicator()`, `updateAspectBar()`. 
-
-During a drag, you can:
-
-* Update only what’s visually critical per frame (canvas + overlay).
-* Throttle or postpone the “info/preset bar” updates until pointerup / endDrag.
-
-That reduces layout thrash while the mouse is moving.
-
----
-
-## 4. “Something extra” if you want to go fancy
-
-If you want to really juice it beyond just browser APIs:
-
-### OffscreenCanvas + Web Worker
-
-* Use `OffscreenCanvas` to do the **preview generation and heavy resampling** in a worker.
-* Main thread stays responsive; you just receive a ready-to-display bitmap.
-
-### WebGL / WebGPU renderer
-
-* Instead of `<canvas 2d>`, render the image as a textured quad in WebGL/WebGPU.
-* You then:
-
-  * Keep the image as a texture (or a set of tiles) on the GPU.
-  * Let the GPU handle pan/zoom with transforms.
-* This is basically how pro photo apps handle giant images, but it’s a bigger rewrite (and still doesn’t remove the 16k texture dimension limits — you’d tile above that).
-
-### WASM for high-quality exports
-
-* For super high-quality downscaling/filters, you can use Rust/C++ → WASM to do CPU-heavy resize/processing, then feed the result into a normal canvas for download.
-* That’s icing on the cake once you’ve got the preview/full-res split.
-
----
-
-## 5. Reality check on 20k×20k
-
-You *can* support **loading** a 20k×20k image and give a smooth UX.
-You **cannot** reliably keep a 20k×20k canvas/texture live and animated on all machines without jank.
-
-So the strategy is:
-
-* **Always downsample for interaction (preview).**
-* **Map crop back to original for export.**
-* Stay within something like 4k–8k for any *interactive* canvas.
-
-If you’d like, I can help sketch the exact patch set to:
-
-* Add `fullImage`/`previewScale`
-* Adjust `loadImageFile` + `exportImage`
-* Keep the rest of your architecture basically intact.
-</file>
-
-<file path="state.js">
-"use strict";
-
-// Tunables
-const MIN_CROP = 20;
-const COMMIT_DELAY = 350;
-const CENTER_MARGIN = 0.15;
-const TRANSITION_MS = 500;
-const MAX_CANVAS_DIM = 16384;
-const EPSILON = 0.001;
-const MAX_ASPECT_VALUE = 100;
-const MAX_PIXEL_DIM = 50000;
-const PREVIEW_MAX_DIM = 4096;
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 32.0;
-
-const MODE = {
-  NONE: "none",
-  ASPECT_RATIO: "aspect-ratio",
-  PIXEL_PRESET: "pixel-preset",
-  CUSTOM_PIXEL: "custom-pixel",
-};
-
-const state = {
+export const state: AppState = {
   image: null,
   fullImage: null,
   previewScale: 1,
@@ -1759,7 +1129,7 @@ const state = {
   committing: false,
   commitTimer: null,
   needsRender: false,
-  mode: MODE.NONE,
+  mode: Mode.NONE,
   aspectRatio: 0,
   exportW: "",
   exportH: "",
@@ -1779,55 +1149,25 @@ const state = {
   showGrid: true,
   scaleFactor: 1,
   scaleLevel: "ok",
+  
+  history: [],
+  historyIndex: -1,
 };
 
-function assert(cond, msg) {
-  if (!cond) throw new Error(`Assertion failed: ${msg}`);
+export function validateCrop(crop: Rect): Result<boolean, string> {
+  if (crop.x < -EPSILON) return Err("x must be >= 0");
+  if (crop.y < -EPSILON) return Err("y must be >= 0");
+  if (crop.w < MIN_CROP) return Err("w too small");
+  if (crop.h < MIN_CROP) return Err("h too small");
+  return Ok(true);
 }
 
-function clamp(val, min, max) {
-  assert(typeof val === "number", "clamp: val must be number");
-  assert(typeof min === "number", "clamp: min must be number");
-  assert(typeof max === "number", "clamp: max must be number");
-  assert(min <= max, "clamp: min must be <= max");
-  return Math.max(min, Math.min(max, val));
-}
-
-function getCropAspect() {
-  const valid = state.crop.w > 0 && state.crop.h > 0;
-  return valid ? state.crop.w / state.crop.h : 0;
-}
-
-function gcd(a, b) {
-  assert(typeof a === "number", "gcd: a must be number");
-  assert(typeof b === "number", "gcd: b must be number");
-  let iterations = 0;
-  const MAX_ITERATIONS = 1000;
-  while (b !== 0 && iterations < MAX_ITERATIONS) {
-    const t = b;
-    b = a % b;
-    a = t;
-    iterations++;
-  }
-  assert(iterations < MAX_ITERATIONS, "gcd: exceeded iteration limit");
-  return a;
-}
-
-function reduceRatio(w, h) {
-  assert(typeof w === "number", "reduceRatio: w must be number");
-  assert(typeof h === "number", "reduceRatio: h must be number");
-  if (!(w > 0 && h > 0)) return { w: 0, h: 0 };
-  const g = gcd(w, h) || 1;
-  return { w: w / g, h: h / g };
-}
-
-function setMode(newMode) {
-  assert(Object.values(MODE).includes(newMode), "setMode: invalid mode");
+export function setMode(newMode: Mode): void {
   state.mode = newMode;
 }
 
-function clearAllSelections() {
-  state.mode = MODE.NONE;
+export function clearAllSelections(): void {
+  state.mode = Mode.NONE;
   state.aspectRatio = 0;
   state.exportW = "";
   state.exportH = "";
@@ -1844,63 +1184,838 @@ function clearAllSelections() {
   state.presetLabels["custom-pixel"] = "Custom Pixels";
 }
 
-function markPresetActive(key, label) {
-  assert(typeof key === "string", "markPresetActive: key must be string");
-  assert(typeof label === "string", "markPresetActive: label must be string");
-  assert(key in state.presetLabels, "markPresetActive: invalid key");
+export function markPresetActive(key: string, label: string): void {
+  if (key in state.presetLabels) {
+    state.activePresetKey = key;
+    state.presetLabels[key] = label;
+  }
+}</file>
 
-  state.activePresetKey = key;
+<file path="src/types.ts">
+export type Result<T, E = Error> = 
+  | { ok: true; value: T } 
+  | { ok: false; error: E };
 
-  if (key === "social") {
-    state.presetLabels.social = label;
-  } else if (key === "docs") {
-    state.presetLabels.docs = label;
-  } else if (key === "custom-pixel") {
-    state.presetLabels["custom-pixel"] = label;
+export const Ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
+export const Err = <E>(error: E): Result<never, E> => ({ ok: false, error });
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Size {
+  w: number;
+  h: number;
+}
+
+export interface Rect extends Point, Size {}
+
+export interface Viewport extends Size {}
+
+export interface ImageTransform {
+  tx: number;
+  ty: number;
+}
+
+export interface DragState {
+  handle: string;
+  startScreen: Point;
+  startCrop: Rect;
+  startTransform: ImageTransform;
+}</file>
+
+<file path="src/ui/aspect.ts">
+import { state, setMode, clearAllSelections } from '../state';
+import { Mode, EPSILON } from '../constants';
+import { requestRender } from './render';
+import { scheduleCommit } from '../logic/transform';
+import { applyAspectToCrop } from '../logic/resize';
+import { validateAspectRatio, reduceRatio } from '../utils';
+import { createPresetDropdowns } from './presets';
+
+export function createAspectTools(): string {
+  // Styles moved to CSS
+  return `
+    <div class="aspect-tools">
+      <div class="aspect-pills">
+        ${createAspectButtons()}
+        <div class="divider-h"></div>
+        ${createCustomAspectControl()}
+        <div class="divider-h"></div>
+        ${createPresetDropdowns()}
+      </div>
+    </div>
+  `;
+}
+
+function createAspectButtons(): string {
+  const ratios = [
+    { label: "Free", value: 0 },
+    { label: "1:1", value: 1 },
+    { label: "4:3", value: 4/3 },
+    { label: "3:2", value: 3/2 },
+    { label: "16:9", value: 16/9 },
+    { label: "9:16", value: 9/16 },
+  ];
+
+  return ratios.map(r => {
+    const isActive = (state.mode === Mode.NONE && r.value === 0) ||
+                     (state.mode === Mode.ASPECT_RATIO && Math.abs(state.aspectRatio - r.value) < EPSILON);
+    return `<button class="aspect-pill ${isActive ? 'active' : ''}" onclick="window.app.setAspect(${r.value})">${r.label}</button>`;
+  }).join("");
+}
+
+function createCustomAspectControl(): string {
+  const isActive = state.customAspectActive;
+  const hasCustom = state.mode === Mode.ASPECT_RATIO && state.customAspectLabel !== "Custom";
+  const label = hasCustom ? state.customAspectLabel : "Custom";
+  
+  if (isActive) {
+    return `
+      <div class="custom-aspect-form">
+        <input id="custom-aspect-w" type="number" min="1" placeholder="W" class="aspect-input" value="${state.customAspectW}">
+        <span>:</span>
+        <input id="custom-aspect-h" type="number" min="1" placeholder="H" class="aspect-input" value="${state.customAspectH}">
+        <button class="btn-apply" onclick="window.app.applyCustomAspect()">�</button>
+        <button class="btn-cancel" onclick="window.app.toggleCustomAspect()">?</button>
+      </div>
+    `;
+  }
+  return `<button class="aspect-pill ${isActive || hasCustom ? 'active' : ''}" onclick="window.app.toggleCustomAspect()">${label}</button>`;
+}
+
+export function setAspect(ratio: number): void {
+  if (!state.image && ratio !== 0) return;
+  clearAllSelections();
+  
+  if (ratio === 0) {
+    setMode(Mode.NONE);
+    state.aspectRatio = 0;
+  } else {
+    setMode(Mode.ASPECT_RATIO);
+    state.aspectRatio = ratio;
+    applyAspectToCrop(ratio);
+  }
+  
+  requestRender();
+  scheduleCommit();
+}
+
+export function toggleCustomAspect(): void {
+  state.customAspectActive = !state.customAspectActive;
+  if (!state.customAspectActive && state.mode === Mode.ASPECT_RATIO && state.customAspectLabel === "Custom") {
+     setMode(Mode.NONE);
+  }
+  requestRender();
+}
+
+export function applyCustomAspect(): void {
+  const wEl = document.getElementById("custom-aspect-w") as HTMLInputElement;
+  const hEl = document.getElementById("custom-aspect-h") as HTMLInputElement;
+  if (!wEl || !hEl) return;
+
+  const w = parseInt(wEl.value, 10);
+  const h = parseInt(hEl.value, 10);
+  if (!(w > 0 && h > 0)) return;
+
+  const reduced = reduceRatio(w, h);
+  const ratio = reduced.w / reduced.h;
+  
+  if (validateAspectRatio(ratio).ok) {
+    clearAllSelections();
+    setMode(Mode.ASPECT_RATIO);
+    state.aspectRatio = ratio;
+    state.customAspectW = String(reduced.w);
+    state.customAspectH = String(reduced.h);
+    state.customAspectLabel = `${reduced.w}:${reduced.h}`;
+    state.customAspectActive = false;
+    
+    applyAspectToCrop(ratio);
+    requestRender();
+    scheduleCommit();
+  }
+}</file>
+
+<file path="src/ui/events.ts">
+import { state } from '../state';
+import { requestRender } from './render';
+import { moveCrop, resizeCrop } from '../logic/resize';
+import { scheduleCommit, setZoom, fitImageToViewport } from '../logic/transform';
+import { resetCropToFull } from '../logic/file-load';
+import { exportImage } from './export';
+import { undo, redo } from '../logic/history';
+
+export function bindCropView(): void {
+  document.querySelectorAll("[data-handle]").forEach((el) => {
+    (el as HTMLElement).onmousedown = (e) => startDrag(e, (el as HTMLElement).dataset.handle || "");
+  });
+  
+  const area = document.getElementById("crop-area");
+  if (area) area.onmousedown = (e) => startDrag(e, "move");
+
+  const viewport = document.getElementById("viewport");
+  if (viewport) {
+    viewport.onwheel = handleWheelZoom as any;
+    viewport.onmousedown = (e) => {
+      if (e.target === viewport) startDrag(e, "pan-image");
+    };
+  }
+
+  const slider = document.getElementById("zoom-slider");
+  if (slider) slider.oninput = handleSliderZoom;
+
+  document.addEventListener("keydown", handleKeyboard);
+  document.addEventListener("mouseup", endDrag);
+  document.addEventListener("mousemove", handleDrag);
+}
+
+function startDrag(e: MouseEvent, handle: string): void {
+  if (!state.image) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  state.committing = false;
+  
+  state.drag = {
+    handle,
+    startScreen: { x: e.clientX, y: e.clientY },
+    startCrop: { ...state.crop },
+    startTransform: { ...state.imageTransform }
+  };
+  
+  const overlay = document.getElementById("crop-overlay");
+  if (overlay) overlay.classList.add("dragging");
+
+  requestRender();
+}
+
+function handleDrag(e: MouseEvent): void {
+  if (!state.drag || !state.image) return;
+  const { handle, startScreen, startCrop, startTransform } = state.drag;
+  
+  const currentScale = state.baseScale * state.zoom;
+  if (currentScale <= 0) return;
+
+  const dx = e.clientX - startScreen.x;
+  const dy = e.clientY - startScreen.y;
+
+  if (handle === "pan-image") {
+    state.imageTransform.tx = startTransform.tx + dx;
+    state.imageTransform.ty = startTransform.ty + dy;
+  } else {
+    const scaleFactor = state.previewScale / currentScale;
+    const dxImg = dx * scaleFactor;
+    const dyImg = dy * scaleFactor;
+    
+    const next = { ...startCrop };
+    
+    if (handle === "move") {
+      moveCrop(next, dxImg, dyImg);
+    } else {
+      resizeCrop(next, startCrop, handle, dxImg, dyImg);
+    }
+    
+    state.crop = next;
+  }
+  requestRender();
+}
+
+function endDrag(): void {
+  if (!state.drag) return;
+  
+  const overlay = document.getElementById("crop-overlay");
+  if (overlay) overlay.classList.remove("dragging");
+
+  if (state.drag.handle !== "pan-image") {
+    scheduleCommit();
+  }
+  
+  state.drag = null;
+  requestRender();
+}
+
+function handleKeyboard(e: KeyboardEvent): void {
+  if ((e.target as HTMLElement).tagName === "INPUT") return;
+  
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+    return;
+  }
+
+  switch (e.key) {
+    case "g": 
+      state.showGrid = !state.showGrid; 
+      requestRender(); 
+      break;
+    case "r": 
+      if (state.image) { 
+        resetCropToFull(state.fullImage || state.image); 
+        scheduleCommit(); 
+      } 
+      break;
+    case "f": 
+      fitImageToViewport(); 
+      requestRender();
+      break;
+    case "Enter": 
+      if (e.metaKey || e.ctrlKey) exportImage(); 
+      break;
   }
 }
 
-function requestRender() {
+function handleWheelZoom(e: WheelEvent): void {
+  if (!state.image) return;
+  e.preventDefault();
+  
+  const delta = e.deltaY > 0 ? -1 : 1;
+  const zoomFactor = 1.1;
+  const newZoom = state.zoom * (delta > 0 ? zoomFactor : 1 / zoomFactor);
+  
+  const rect = (e.currentTarget as Element).getBoundingClientRect();
+  const focalPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  
+  setZoom(newZoom, focalPoint);
+}
+
+function handleSliderZoom(e: Event): void {
+  if (!state.image) return;
+  const val = parseInt((e.target as HTMLInputElement).value, 10);
+  const minLog = Math.log(0.1);
+  const maxLog = Math.log(32.0);
+  const scale = (maxLog - minLog) / 1000;
+  const newZoom = Math.exp(minLog + scale * val);
+  
+  setZoom(newZoom, { x: state.viewport.w / 2, y: state.viewport.h / 2 });
+}</file>
+
+<file path="src/ui/export.ts">
+import { state } from '../state';
+import { Mode } from '../constants';
+import { createExportBlob, generateFilename } from '../logic/export';
+
+export function createExportTools(): string {
+  // Styles moved to CSS
+  return `
+    <div class="export-tools">
+      <div class="export-label">Export Size</div>
+      <div class="export-size-inputs">
+        <input id="export-w" class="size-input" oninput="window.app.onExportInput('w', this.value)">
+        <span>x</span>
+        <input id="export-h" class="size-input" oninput="window.app.onExportInput('h', this.value)">
+      </div>
+      <button class="export-action" onclick="window.app.exportImage()">Export</button>
+    </div>
+  `;
+}
+
+export function syncExportInputsToCrop(): void {
+  const ew = document.getElementById("export-w") as HTMLInputElement;
+  const eh = document.getElementById("export-h") as HTMLInputElement;
+  if (!ew || !eh) return;
+  
+  if (state.mode === Mode.NONE || state.mode === Mode.ASPECT_RATIO) {
+    if (document.activeElement !== ew) ew.value = Math.round(state.crop.w).toString();
+    if (document.activeElement !== eh) eh.value = Math.round(state.crop.h).toString();
+  } else if (state.mode === Mode.PIXEL_PRESET) {
+    if (document.activeElement !== ew) ew.value = state.exportW;
+    if (document.activeElement !== eh) eh.value = state.exportH;
+  }
+}
+
+export function exportImage(): void {
+  const w = parseInt(state.exportW) || Math.round(state.crop.w);
+  const h = parseInt(state.exportH) || Math.round(state.crop.h);
+  
+  createExportBlob(w, h).then(blob => {
+    if (!blob) return alert("Export failed");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = generateFilename(w, h);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  });
+}</file>
+
+<file path="src/ui/init.ts">
+import { assert } from '../utils';
+import { loadImageFile } from '../logic/file-load';
+import { createCropView } from './layout';
+import { bindCropView } from './events';
+import { recalculateLayout } from '../logic/transform';
+
+export function initAppView(): void {
+  const app = document.getElementById("app");
+  assert(!!app, "Missing #app");
+  if (app) {
+    app.innerHTML = createDropZone();
+    bindDropZone();
+  }
+}
+
+export function renderLoadingView(): void {
+  const app = document.getElementById("app");
+  if (app) app.innerHTML = `<div class="loading-view">Processing...</div>`;
+}
+
+export function renderCropView(): void {
+  const app = document.getElementById("app");
+  if (app) {
+    app.innerHTML = createCropView();
+    bindCropView();
+    const vp = document.getElementById("viewport");
+    if (vp) new ResizeObserver(() => recalculateLayout()).observe(vp);
+  }
+}
+
+function createDropZone(): string {
+  return `
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept="image/*" class="hidden">
+      <div>Drop image here</div>
+    </div>
+  `;
+}
+
+function bindDropZone(): void {
+  const zone = document.getElementById("drop-zone");
+  const input = document.getElementById("file-input") as HTMLInputElement;
+  if (!zone || !input) return;
+
+  zone.onclick = () => input.click();
+  input.onchange = (e: any) => {
+    if (e.target.files?.length) loadImageFile(e.target.files[0]);
+  };
+  zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("dragging"); };
+  zone.ondragleave = () => zone.classList.remove("dragging");
+  zone.ondrop = (e) => {
+    e.preventDefault();
+    zone.classList.remove("dragging");
+    if (e.dataTransfer?.files.length) loadImageFile(e.dataTransfer.files[0]);
+  };
+}</file>
+
+<file path="src/ui/layout.ts">
+import { createAspectTools } from './aspect';
+import { createExportTools } from './export';
+
+export function createCropView(): string {
+  // Ensure we call createAspectTools() which now definitely includes the preset dropdowns
+  return `
+    <div class="viewport" id="viewport">
+      <canvas id="canvas"></canvas>
+      <div class="crop-overlay" id="crop-overlay">
+        <div class="crop-area" id="crop-area"></div>
+        ${createHandles()}
+        <canvas id="grid-canvas" class="grid-canvas"></canvas>
+      </div>
+      ${createCropMetadata()}
+      ${createAspectTools()}
+      ${createExportTools()}
+    </div>
+    ${createTopBar()}
+    ${createBottomBar()}
+  `;
+}
+
+function createHandles(): string {
+  return `
+    <div class="handle nw" data-handle="nw"></div><div class="handle ne" data-handle="ne"></div>
+    <div class="handle sw" data-handle="sw"></div><div class="handle se" data-handle="se"></div>
+    <div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div>
+    <div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>
+  `;
+}
+
+function createTopBar(): string {
+  return `
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="info-pill" id="source-info">-</div>
+        <div class="info-pill" id="crop-info">-</div>
+      </div>
+      <div class="top-bar-right">
+        <button class="tool-btn" onclick="window.app.newImage()" title="New Image">N</button>
+      </div>
+    </div>
+  `;
+}
+
+function createBottomBar(): string {
+  return `
+    <div class="bottom-bar">
+      <button class="tool-btn" onclick="window.app.toggleGrid()" title="Grid">G</button>
+      <div class="zoom-group">
+        <button class="tool-btn" onclick="window.app.zoomToFit()" title="Fit">Fit</button>
+        <input type="range" id="zoom-slider" min="0" max="1000" step="1">
+        <div id="zoom-indicator">100%</div>
+        <button class="tool-btn" onclick="window.app.zoomToActual()" title="1:1">1:1</button>
+      </div>
+      <button class="tool-btn" onclick="window.app.resetCrop()" title="Reset">R</button>
+    </div>
+  `;
+}
+
+function createCropMetadata(): string {
+  return `
+    <div class="crop-metadata" id="crop-metadata">
+      <div class="metadata-value" id="crop-dimensions">-</div>
+      <div class="metadata-arrow"></div>
+      <div class="metadata-value" id="export-dimensions">-</div>
+      <div class="metadata-note" id="scale-note"></div>
+    </div>
+  `;
+}</file>
+
+<file path="src/ui/presets.ts">
+import { state, setMode, clearAllSelections, markPresetActive } from '../state';
+import { Mode } from '../constants';
+import { applyAspectToCrop } from '../logic/resize';
+import { requestRender } from './render';
+import { scheduleCommit } from '../logic/transform';
+import { validatePixelDimension, validateAspectRatio } from '../utils';
+
+export function createPresetDropdowns(): string {
+  // We need to replicate the HTML structure for the 3 menus: Social, Docs, Custom Pixel
+  return `
+    <div class="preset-group">
+      <button id="preset-social-trigger" class="aspect-pill preset-trigger" onclick="window.app.togglePreset('social', event)">
+        <span>${state.presetLabels.social}</span> ?
+      </button>
+      <div id="preset-menu-social" class="preset-menu">
+        ${createSocialItems()}
+      </div>
+    </div>
+
+    <div class="preset-group">
+      <button id="preset-docs-trigger" class="aspect-pill preset-trigger" onclick="window.app.togglePreset('docs', event)">
+        <span>${state.presetLabels.docs}</span> ?
+      </button>
+      <div id="preset-menu-docs" class="preset-menu">
+        ${createDocsItems()}
+      </div>
+    </div>
+
+    <div class="preset-group">
+      <button id="preset-custom-trigger" class="aspect-pill preset-trigger" onclick="window.app.togglePreset('custom-pixel', event)">
+        <span>${state.presetLabels["custom-pixel"]}</span> ?
+      </button>
+      <div id="preset-menu-custom-pixel" class="preset-menu ${state.customPixelActive ? 'visible' : ''}">
+        ${createCustomPixelForm()}
+      </div>
+    </div>
+  `;
+}
+
+function createSocialItems(): string {
+  return `
+    <div class="preset-group-label">Instagram</div>
+    ${btn('social', 'IG Square', 1080, 1080)}
+    ${btn('social', 'IG Portrait', 1080, 1350)}
+    ${btn('social', 'IG Landscape', 1080, 566)}
+    ${btn('social', 'IG Story', 1080, 1920)}
+    <div class="preset-group-label">Facebook</div>
+    ${btn('social', 'FB Post', 1080, 1080)}
+    ${btn('social', 'FB Cover', 820, 312)}
+    <div class="preset-group-label">YouTube</div>
+    ${btn('social', 'YT Thumb', 1280, 720)}
+  `;
+}
+
+function createDocsItems(): string {
+  return `
+    <div class="preset-group-label">Print @300dpi</div>
+    ${btn('docs', 'A4', 2480, 3508)}
+    ${btn('docs', 'Letter', 2550, 3300)}
+  `;
+}
+
+function btn(key: string, label: string, w: number, h: number): string {
+  return `<button class="preset-item" onclick="window.app.selectPreset('${key}', '${label}', ${w}, ${h})">${label} ${w}x${h}</button>`;
+}
+
+function createCustomPixelForm(): string {
+  return `
+    <div class="preset-group-label">Custom Size</div>
+    <div class="custom-pixel-form">
+      <input id="custom-pixel-w" type="number" placeholder="W" class="aspect-input" value="${state.customPixelW}">
+      <span>x</span>
+      <input id="custom-pixel-h" type="number" placeholder="H" class="aspect-input" value="${state.customPixelH}">
+      <button class="btn-apply" onclick="window.app.applyCustomPixel()">Apply</button>
+    </div>
+  `;
+}
+
+export function togglePreset(key: string, e: Event): void {
+  e.stopPropagation();
+  const menu = document.getElementById(`preset-menu-${key}`);
+  const wasVisible = menu?.classList.contains("visible");
+  
+  // Close all
+  document.querySelectorAll(".preset-menu").forEach(el => el.classList.remove("visible"));
+  
+  if (!wasVisible && menu) {
+    menu.classList.add("visible");
+    if (key === 'custom-pixel') state.customPixelActive = true;
+  } else {
+    state.customPixelActive = false;
+  }
+  requestRender();
+}
+
+export function selectPreset(key: string, label: string, w: number, h: number): void {
+  if (!state.image) return;
+  
+  clearAllSelections();
+  setMode(Mode.PIXEL_PRESET);
+  markPresetActive(key, label);
+  
+  // Close menus
+  document.querySelectorAll(".preset-menu").forEach(el => el.classList.remove("visible"));
+
+  state.exportW = String(w);
+  state.exportH = String(h);
+  
+  const ratio = w / h;
+  state.aspectRatio = ratio;
+  
+  applyAspectToCrop(ratio);
+  requestRender();
+  scheduleCommit();
+}
+
+export function applyCustomPixel(): void {
+  const wEl = document.getElementById("custom-pixel-w") as HTMLInputElement;
+  const hEl = document.getElementById("custom-pixel-h") as HTMLInputElement;
+  if (!wEl || !hEl) return;
+  
+  const w = parseInt(wEl.value, 10);
+  const h = parseInt(hEl.value, 10);
+  if (!(w > 0 && h > 0)) return;
+
+  clearAllSelections();
+  setMode(Mode.CUSTOM_PIXEL);
+  state.customPixelW = String(w);
+  state.customPixelH = String(h);
+  markPresetActive('custom-pixel', `Custom ${w}x${h}`);
+  
+  document.querySelectorAll(".preset-menu").forEach(el => el.classList.remove("visible"));
+  state.customPixelActive = false;
+
+  state.exportW = String(w);
+  state.exportH = String(h);
+  state.aspectRatio = w / h;
+
+  applyAspectToCrop(state.aspectRatio);
+  requestRender();
+  scheduleCommit();
+}
+
+export function updatePresetTriggers(): void {
+  const map: Record<string, string> = {
+    social: "preset-social-trigger",
+    docs: "preset-docs-trigger",
+    "custom-pixel": "preset-custom-trigger",
+  };
+  
+  Object.entries(map).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    
+    const span = el.querySelector("span");
+    if (span) span.textContent = state.presetLabels[key] || "Preset";
+    
+    if (state.activePresetKey === key) el.classList.add("active");
+    else el.classList.remove("active");
+  });
+}</file>
+
+<file path="src/ui/render.ts">
+import { state } from '../state';
+import { updateCropInfoUI } from './updates';
+import { updatePresetTriggers } from './presets';
+import { syncExportInputsToCrop } from './export';
+import { updateZoomUI } from './updates';
+
+export function requestRender(): void {
   if (state.needsRender) return;
   state.needsRender = true;
-  window.requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
     state.needsRender = false;
     renderFrame();
   });
 }
 
-function validateCrop(crop) {
-  assert(crop !== null, "validateCrop: crop is null");
-  assert(typeof crop.x === "number", "validateCrop: x must be number");
-  assert(typeof crop.y === "number", "validateCrop: y must be number");
-  assert(typeof crop.w === "number", "validateCrop: w must be number");
-  assert(typeof crop.h === "number", "validateCrop: h must be number");
-  assert(crop.x >= -EPSILON, "validateCrop: x must be >= 0");
-  assert(crop.y >= -EPSILON, "validateCrop: y must be >= 0");
-  assert(crop.w >= MIN_CROP, "validateCrop: w must be >= MIN_CROP");
-  assert(crop.h >= MIN_CROP, "validateCrop: h must be >= MIN_CROP");
-  return true;
+function renderFrame(): void {
+  const img = state.image;
+  if (!img) return;
+
+  const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+  const overlay = document.getElementById("crop-overlay");
+  if (!canvas || !overlay) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+  }
+
+  const { tx, ty } = state.imageTransform;
+  const { x, y, w, h } = state.crop;
+  const currentScale = state.baseScale * state.zoom;
+
+  // CRITICAL FIX: Add image rendering logic for sharp/crisp edges when zoomed
+  const screenPixelsPerImagePixel = currentScale / state.previewScale;
+  canvas.style.imageRendering = screenPixelsPerImagePixel > 2.5 ? "pixelated" : "auto";
+
+  canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${currentScale})`;
+  canvas.className = state.committing ? "canvas-committing" : "";
+  overlay.className = getOverlayClass();
+
+  updateOverlayStyle(overlay, x, y, w, h, tx, ty, currentScale);
+  
+  const gridCanvas = document.getElementById("grid-canvas") as HTMLCanvasElement;
+  if (gridCanvas) renderGrid(gridCanvas, w * currentScale / state.previewScale, h * currentScale / state.previewScale);
+
+  updateCropInfoUI();
+  updatePresetTriggers();
+  syncExportInputsToCrop();
+  updateZoomUI();
 }
 
-function validateAspectRatio(ratio) {
-  assert(typeof ratio === "number", "validateAspectRatio: must be number");
-  assert(ratio >= 0, "validateAspectRatio: must be >= 0");
-  assert(ratio <= MAX_ASPECT_VALUE, "validateAspectRatio: exceeds max");
-  return true;
+function getOverlayClass(): string {
+  if (state.committing) return "crop-overlay committing";
+  if (state.drag) return "crop-overlay dragging";
+  return "crop-overlay";
 }
 
-function validatePixelDimension(dim) {
-  assert(typeof dim === "number", "validatePixelDimension: must be number");
-  assert(dim > 0, "validatePixelDimension: must be > 0");
-  assert(dim <= MAX_PIXEL_DIM, "validatePixelDimension: exceeds max");
-  assert(Number.isInteger(dim), "validatePixelDimension: must be integer");
-  return true;
+function updateOverlayStyle(overlay: HTMLElement, x: number, y: number, w: number, h: number, tx: number, ty: number, scale: number) {
+  const pScale = state.previewScale;
+  const l = tx + (x / pScale) * scale;
+  const t = ty + (y / pScale) * scale;
+  overlay.style.left = `${l}px`;
+  overlay.style.top = `${t}px`;
+  overlay.style.width = `${(w / pScale) * scale}px`;
+  overlay.style.height = `${(h / pScale) * scale}px`;
 }
-</file>
+
+function renderGrid(canvas: HTMLCanvasElement, w: number, h: number): void {
+  if (!state.showGrid) {
+    canvas.style.display = "none";
+    return;
+  }
+  canvas.style.display = "block";
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  
+  ctx.moveTo(w / 3, 0); ctx.lineTo(w / 3, h);
+  ctx.moveTo(2 * w / 3, 0); ctx.lineTo(2 * w / 3, h);
+  ctx.moveTo(0, h / 3); ctx.lineTo(w, h / 3);
+  ctx.moveTo(0, 2 * h / 3); ctx.lineTo(w, 2 * h / 3);
+  
+  ctx.stroke();
+}</file>
+
+<file path="src/ui/updates.ts">
+import { state } from '../state';
+import { gcd } from '../utils';
+
+export function updateCropInfoUI(): void {
+  const info = document.getElementById("crop-dimensions");
+  const exportDim = document.getElementById("export-dimensions");
+  
+  if (!state.image) return;
+
+  const w = Math.round(state.crop.w);
+  const h = Math.round(state.crop.h);
+  
+  if (info) {
+    const g = gcd(w, h);
+    info.textContent = `${w}x${h} (${w/g}:${h/g})`;
+  }
+
+  if (exportDim) {
+    const ew = parseInt(state.exportW) || w;
+    const eh = parseInt(state.exportH) || h;
+    exportDim.textContent = `${ew}x${eh}`;
+  }
+}
+
+export function updateZoomUI(): void {
+  const ind = document.getElementById("zoom-indicator");
+  if (ind) ind.textContent = `${Math.round(state.zoom * 100)}%`;
+}</file>
+
+<file path="src/utils.ts">
+import { Result, Ok, Err } from './types';
+import { EPSILON, MAX_PIXEL_DIM } from './constants';
+
+export function assert(cond: boolean, msg: string): void {
+  if (!cond) throw new Error(`Assertion failed: ${msg}`);
+}
+
+export function clamp(val: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, val));
+}
+
+export function gcd(a: number, b: number): number {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return x;
+}
+
+export function reduceRatio(w: number, h: number): { w: number; h: number } {
+  if (w <= 0 || h <= 0) return { w: 0, h: 0 };
+  const divisor = gcd(w, h) || 1;
+  return { w: w / divisor, h: h / divisor };
+}
+
+export function validateAspectRatio(ratio: number): Result<boolean, string> {
+  if (ratio < 0) return Err("Ratio must be positive");
+  if (ratio > 100) return Err("Ratio exceeds maximum");
+  return Ok(true);
+}
+
+export function validatePixelDimension(dim: number): Result<boolean, string> {
+  if (dim <= 0) return Err("Dimension must be > 0");
+  if (dim > MAX_PIXEL_DIM) return Err("Dimension exceeds limit");
+  if (!Number.isInteger(dim)) return Err("Dimension must be integer");
+  return Ok(true);
+}
+
+export function hasChanged(start: any, x: number, y: number, w: number, h: number): boolean {
+  const threshold = 0.25;
+  return (
+    Math.abs(start.x - x) >= threshold ||
+    Math.abs(start.y - y) >= threshold ||
+    Math.abs(start.w - w) >= threshold ||
+    Math.abs(start.h - h) >= threshold
+  );
+}</file>
 
 <file path="styles.css">
 :root {
-    --bg-color: #0d0d0d;
+    --bg-color: #0a0a0a;
     --panel-bg: rgba(18, 18, 20, 0.95);
     --border-color: #2a2a2c;
     --border-subtle: #1a1a1c;
@@ -1934,8 +2049,8 @@ function validatePixelDimension(dim) {
     --radius-md: 6px;
     --radius-lg: 8px;
     --radius-pill: 20px;
-    --transition-fast: 0.12s cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-fast: 0.1s ease-out;
+    --transition-base: 0.15s ease-in-out;
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -1961,20 +2076,10 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
-body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 1;
-}
-
 #app {
     width: 100vw;
     height: 100vh;
     position: relative;
-    z-index: 2;
 }
 
 .viewport {
@@ -2028,62 +2133,25 @@ body::before {
     color: var(--text-color);
 }
 
-/* CORNER ICON SYSTEM */
-.corner-icon {
-    position: fixed;
-    width: 40px;
-    height: 40px;
+/* TOP BAR */
+.top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    justify-content: center;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    color: var(--text-muted-color);
-    transition: all var(--transition-fast);
-    backdrop-filter: blur(20px) saturate(120%);
-    box-shadow: var(--shadow-sm);
+    padding: var(--spacing-lg);
+    pointer-events: none;
     z-index: 100;
 }
 
-.corner-icon:hover {
-    color: var(--text-color);
-    background: var(--button-hover);
-    border-color: var(--border-color);
-    transform: scale(1.05);
-}
-
-.corner-icon.active {
-    color: var(--accent-color);
-    background: var(--button-hover);
-    border-color: var(--accent-color);
-}
-
-.corner-icon-tl {
-    top: var(--spacing-xl);
-    left: var(--spacing-xl);
-}
-
-.corner-icon-tr {
-    top: var(--spacing-xl);
-    right: var(--spacing-xl);
-}
-
-.corner-icon-br {
-    bottom: var(--spacing-xl);
-    right: var(--spacing-xl);
-}
-
-/* INFO PILLS - TOP CENTER */
-.info-pills {
-    position: fixed;
-    top: var(--spacing-xl);
-    left: 50%;
-    transform: translateX(-50%);
+.top-bar-left,
+.top-bar-right {
     display: flex;
     gap: var(--spacing-md);
-    z-index: 100;
+    pointer-events: auto;
 }
 
 .info-pill {
@@ -2099,85 +2167,23 @@ body::before {
     color: var(--text-color);
 }
 
-/* SLIDE-OUT PANELS */
-.slide-panel {
-    position: fixed;
-    background: var(--panel-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    backdrop-filter: blur(20px) saturate(120%);
-    box-shadow: var(--shadow-lg);
-    padding: var(--spacing-lg);
-    z-index: 99;
-    opacity: 0;
-    pointer-events: none;
-    transition: all var(--transition-base);
-}
-
-.slide-panel.visible {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.panel-aspect {
-    top: 64px;
-    left: var(--spacing-xl);
-    transform: translateY(-10px);
-}
-
-.panel-aspect.visible {
-    transform: translateY(0);
-}
-
-.panel-presets {
-    top: 64px;
-    right: var(--spacing-xl);
-    transform: translateY(-10px);
-}
-
-.panel-presets.visible {
-    transform: translateY(0);
-}
-
-.panel-export {
-    bottom: 64px;
-    right: var(--spacing-xl);
-    transform: translateY(10px);
-}
-
-.panel-export.visible {
-    transform: translateY(0);
-}
-
 /* BOTTOM BAR */
 .bottom-bar {
-    position: fixed;
+    position: absolute;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: var(--spacing-lg);
     padding: var(--spacing-lg);
     background: var(--panel-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     backdrop-filter: blur(20px) saturate(120%);
     box-shadow: var(--shadow-lg);
+    pointer-events: auto;
     z-index: 100;
-}
-
-.tool-group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.tool-separator {
-    width: 1px;
-    height: 16px;
-    background: var(--border-color);
-    margin: 0 4px;
 }
 
 .zoom-group {
@@ -2188,16 +2194,11 @@ body::before {
 
 #zoom-slider {
     -webkit-appearance: none;
-    width: 100px;
+    width: 120px;
     height: 4px;
     background: var(--border-color);
     border-radius: 2px;
     cursor: pointer;
-    transition: background var(--transition-fast);
-}
-
-#zoom-slider:hover {
-    background: var(--button-hover);
 }
 
 #zoom-slider::-webkit-slider-thumb {
@@ -2207,11 +2208,6 @@ body::before {
     background: var(--accent-color);
     border-radius: 50%;
     cursor: pointer;
-    transition: transform var(--transition-fast);
-}
-
-#zoom-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
 }
 
 #zoom-slider::-moz-range-thumb {
@@ -2221,11 +2217,6 @@ body::before {
     border-radius: 50%;
     cursor: pointer;
     border: none;
-    transition: transform var(--transition-fast);
-}
-
-#zoom-slider::-moz-range-thumb:hover {
-    transform: scale(1.2);
 }
 
 #zoom-indicator {
@@ -2307,26 +2298,10 @@ body::before {
     height: 13px;
 }
 
-.handle.nw {
-    top: -6px;
-    left: -6px;
-    cursor: nwse-resize;
-}
-.handle.ne {
-    top: -6px;
-    right: -6px;
-    cursor: nesw-resize;
-}
-.handle.sw {
-    bottom: -6px;
-    left: -6px;
-    cursor: nesw-resize;
-}
-.handle.se {
-    bottom: -6px;
-    right: -6px;
-    cursor: nwse-resize;
-}
+.handle.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.handle.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.handle.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.handle.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
 .edge {
     position: absolute;
@@ -2339,8 +2314,7 @@ body::before {
     opacity: 1;
 }
 
-.edge.n,
-.edge.s {
+.edge.n, .edge.s {
     width: 36px;
     height: 5px;
     left: 50%;
@@ -2348,16 +2322,10 @@ body::before {
     cursor: ns-resize;
     border-radius: 3px;
 }
+.edge.n { top: -3px; }
+.edge.s { bottom: -3px; }
 
-.edge.n {
-    top: -3px;
-}
-.edge.s {
-    bottom: -3px;
-}
-
-.edge.w,
-.edge.e {
+.edge.w, .edge.e {
     width: 5px;
     height: 36px;
     top: 50%;
@@ -2365,13 +2333,8 @@ body::before {
     cursor: ew-resize;
     border-radius: 3px;
 }
-
-.edge.w {
-    left: -3px;
-}
-.edge.e {
-    right: -3px;
-}
+.edge.w { left: -3px; }
+.edge.e { right: -3px; }
 
 .grid-canvas {
     position: absolute;
@@ -2379,26 +2342,87 @@ body::before {
     pointer-events: none;
 }
 
-/* PANEL CONTENT STYLES */
+/* CROP METADATA */
+.crop-metadata {
+    position: absolute;
+    top: -36px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    backdrop-filter: blur(20px) saturate(120%);
+    box-shadow: var(--shadow-sm);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition-base);
+    white-space: nowrap;
+}
+
+.crop-overlay:hover .crop-metadata {
+    opacity: 1;
+}
+
+.metadata-value { color: var(--text-color); }
+.metadata-arrow { color: var(--text-muted-color); }
+
+.metadata-note {
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 700;
+}
+.metadata-note.ok { color: var(--success-color); background: rgba(108, 207, 108, 0.15); }
+.metadata-note.warn { color: var(--warning-color); background: rgba(224, 199, 90, 0.15); }
+.metadata-note.bad { color: var(--error-color); background: rgba(255, 102, 102, 0.15); }
+
+/* ASPECT TOOLS - FIXED POSITION */
+.aspect-tools {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 500;
+    transition: opacity var(--transition-base);
+}
+
 .aspect-pills {
     display: flex;
     flex-direction: column;
     gap: 3px;
+    padding: 5px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    backdrop-filter: blur(20px) saturate(120%);
+    box-shadow: var(--shadow-md);
 }
 
 .aspect-pill {
-    padding: 6px 12px;
+    padding: 5px 9px;
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-muted-color);
     cursor: pointer;
     font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
     font-weight: 600;
     transition: all var(--transition-fast);
     white-space: nowrap;
     text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .aspect-pill:hover {
@@ -2415,48 +2439,99 @@ body::before {
 .divider-h {
     height: 1px;
     background: var(--border-subtle);
-    margin: 4px 0;
+    margin: 2px 0;
+}
+
+.custom-aspect-form {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+}
+
+.aspect-input {
+    width: 40px;
+    padding: 3px 5px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--input-bg);
+    color: var(--text-color);
+    font-size: var(--font-size-xs);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.btn-apply, .btn-cancel {
+    padding: 3px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--button-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+}
+
+/* EXPORT TOOLS - BOTTOM RIGHT FIXED */
+.export-tools {
+    position: fixed;
+    right: 20px;
+    bottom: 80px;
+    top: auto;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 500;
+    background: var(--panel-bg);
+    padding: 10px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(20px);
+}
+
+.export-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted-color);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding: 0 5px;
 }
 
 .export-size-inputs {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: var(--spacing-md);
+    gap: 5px;
+    padding: 5px 9px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
 }
 
 .size-input {
-    width: 70px;
-    padding: 6px 8px;
+    width: 52px;
+    padding: 3px 6px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-subtle);
     background: var(--input-bg);
     color: var(--text-color);
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-sm);
     text-align: center;
-    font-family: var(--font-mono);
-    font-weight: 600;
-    transition: all var(--transition-fast);
-}
-
-.size-input:focus {
-    outline: none;
-    border-color: var(--accent-color);
-}
-
-.size-separator {
-    color: var(--text-muted-color);
     font-family: var(--font-mono);
     font-weight: 600;
 }
 
 .export-action {
-    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 10px 16px;
+    padding: 9px 14px;
     background: var(--accent-color);
     color: var(--text-dark-color);
     border: none;
@@ -2466,7 +2541,6 @@ body::before {
     font-size: var(--font-size-sm);
     font-weight: 700;
     transition: all var(--transition-fast);
-    box-shadow: var(--shadow-md);
 }
 
 .export-action:hover {
@@ -2474,154 +2548,7 @@ body::before {
     transform: translateY(-1px);
 }
 
-.preset-group-label {
-    font-size: var(--font-size-xs);
-    color: var(--text-muted-color);
-    padding: 8px 0 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-}
-
-.preset-item {
-    padding: 6px 8px;
-    font-size: var(--font-size-sm);
-    color: var(--text-color);
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-    border: none;
-    background: transparent;
-    text-align: left;
-    font-family: var(--font-family);
-    transition: all var(--transition-fast);
-    white-space: nowrap;
-}
-
-.preset-item:hover {
-    background: var(--button-hover);
-}
-
-/* UTILITY */
-.hidden {
-    display: none !important;
-}
-
-.global-drop-hint {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    background: rgba(0, 0, 0, 0.7);
-    color: var(--accent-color);
-    font-size: 15px;
-    font-weight: 600;
-    backdrop-filter: blur(8px);
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    z-index: 300;
-}
-
-.global-drop-hint.visible {
-    opacity: 1;
-}
-
-/* SHORTCUTS MODAL */
-.shortcuts-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(5px);
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 1;
-    transition: opacity var(--transition-base);
-}
-
-.shortcuts-overlay.hidden {
-    opacity: 0;
-    pointer-events: none;
-}
-
-.shortcuts-modal {
-    background: var(--panel-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    width: 320px;
-    overflow: hidden;
-}
-
-.shortcuts-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--spacing-lg) var(--spacing-xl);
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.shortcuts-header h3 {
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--text-color);
-}
-
-.close-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted-color);
-    font-size: 18px;
-    cursor: pointer;
-    line-height: 1;
-}
-
-.close-btn:hover {
-    color: var(--text-color);
-}
-
-.shortcuts-list {
-    padding: var(--spacing-md) var(--spacing-xl);
-}
-
-.shortcut-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.shortcut-row:last-child {
-    border-bottom: none;
-}
-
-.key-desc {
-    font-size: var(--font-size-sm);
-    color: var(--text-muted-color);
-}
-
-.keys {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--font-size-xs);
-    color: var(--text-color);
-    font-family: var(--font-mono);
-}
-
-kbd {
-    display: inline-block;
-    padding: 2px 5px;
-    border-radius: 4px;
-    background: #2a2a2c;
-    border: 1px solid #3a3a3c;
-    min-width: 18px;
-    text-align: center;
-}
-</file>
+.hidden { display: none !important; }</file>
 
 <file path="stylesControls.css">
 /* FILE: crop/stylesControls.css */
@@ -2868,968 +2795,40 @@ kbd {
 }
 </file>
 
-<file path="view.js">
-"use strict";
-
-let activePanel = null;
-
-function initAppView() {
-  const app = document.getElementById("app");
-  assert(app, "initAppView: missing #app container");
-  app.innerHTML = createDropZone();
-  bindDropZone();
-}
-
-function renderLoadingView() {
-  const app = document.getElementById("app");
-  assert(app, "renderLoadingView: missing #app container");
-  app.innerHTML = `<div class="loading-view">Processing...</div>`;
-}
-
-function createDropZone() {
-  return `
-    <div class="drop-zone" id="drop-zone">
-      <input type="file" id="file-input" accept="image/*" class="hidden">
-      <div>Drop image here</div>
-    </div>
-  `;
-}
-
-function bindDropZone() {
-  const zone = document.getElementById("drop-zone");
-  const input = document.getElementById("file-input");
-  assert(zone, "bindDropZone: missing drop zone");
-  assert(input, "bindDropZone: missing file input");
-
-  zone.onclick = () => input.click();
-  input.onchange = (e) => {
-    if (e.target.files && e.target.files.length)
-      loadImageFile(e.target.files[0]);
-  };
-  zone.ondragover = (e) => {
-    e.preventDefault();
-    zone.classList.add("dragging");
-  };
-  zone.ondragleave = () => zone.classList.remove("dragging");
-  zone.ondrop = (e) => {
-    e.preventDefault();
-    zone.classList.remove("dragging");
-    if (e.dataTransfer.files && e.dataTransfer.files.length) {
-      loadImageFile(e.dataTransfer.files[0]);
-    }
-  };
-}
-
-function renderCropView() {
-  assert(state.image, "renderCropView: no image");
-  const app = document.getElementById("app");
-  assert(app, "renderCropView: missing #app container");
-
-  app.innerHTML = createCropView();
-
-  bindCropView();
-  const viewport = document.getElementById("viewport");
-  assert(viewport, "renderCropView: missing viewport");
-  const observer = new ResizeObserver(onViewportResize);
-  observer.observe(viewport);
-  onViewportResize();
-}
-
-function createCropView() {
-  return `
-    <div class="viewport" id="viewport">
-      <canvas id="canvas"></canvas>
-      <div class="crop-overlay" id="crop-overlay">
-        <div class="crop-area" id="crop-area"></div>
-        <div class="handle nw" data-handle="nw"></div><div class="handle ne" data-handle="ne"></div>
-        <div class="handle sw" data-handle="sw"></div><div class="handle se" data-handle="se"></div>
-        <div class="edge n" data-handle="n"></div><div class="edge s" data-handle="s"></div>
-        <div class="edge w" data-handle="w"></div><div class="edge e" data-handle="e"></div>
-        <canvas id="grid-canvas" class="grid-canvas"></canvas>
-      </div>
-    </div>
-    ${createInfoPills()}
-    ${createCornerIcons()}
-    ${createPanels()}
-    ${createBottomBar()}
-    ${createShortcutsOverlay()}
-  `;
-}
-
-function createInfoPills() {
-  return `
-    <div class="info-pills">
-      <div class="info-pill" id="source-info">—</div>
-      <div class="info-pill" id="crop-info">—</div>
-    </div>
-  `;
-}
-
-function createCornerIcons() {
-  return `
-    <button class="corner-icon corner-icon-tl" id="icon-aspect" onclick="togglePanel('aspect')" title="Aspect Ratio">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="3" y="3" width="14" height="14" rx="2"/>
-        <path d="M3 10h14M10 3v14"/>
-      </svg>
-    </button>
-    <button class="corner-icon corner-icon-tr" id="icon-presets" onclick="togglePanel('presets')" title="Presets">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-        <rect x="3" y="3" width="5" height="5" rx="1"/>
-        <rect x="12" y="3" width="5" height="5" rx="1"/>
-        <rect x="3" y="12" width="5" height="5" rx="1"/>
-        <rect x="12" y="12" width="5" height="5" rx="1"/>
-      </svg>
-    </button>
-    <button class="corner-icon corner-icon-br" id="icon-export" onclick="togglePanel('export')" title="Export">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M6 10l4 4 4-4M10 3v11"/>
-        <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2"/>
-      </svg>
-    </button>
-  `;
-}
-
-function createPanels() {
-  return `
-    <div class="slide-panel panel-aspect" id="panel-aspect">
-      ${createAspectContent()}
-    </div>
-    <div class="slide-panel panel-presets" id="panel-presets">
-      ${createPresetsContent()}
-    </div>
-    <div class="slide-panel panel-export" id="panel-export">
-      ${createExportContent()}
-    </div>
-  `;
-}
-
-function createAspectContent() {
-  return `
-    <div class="aspect-pills">
-      <button class="aspect-pill" data-aspect="0" onclick="setAspectFromButton(0)">Free</button>
-      <button class="aspect-pill" data-aspect="1" onclick="setAspectFromButton(1)">1:1</button>
-      <button class="aspect-pill" data-aspect="${4 / 3}" onclick="setAspectFromButton(${4 / 3})">4:3</button>
-      <button class="aspect-pill" data-aspect="${3 / 2}" onclick="setAspectFromButton(${3 / 2})">3:2</button>
-      <button class="aspect-pill" data-aspect="${16 / 9}" onclick="setAspectFromButton(${16 / 9})">16:9</button>
-      <button class="aspect-pill" data-aspect="${9 / 16}" onclick="setAspectFromButton(${9 / 16})">9:16</button>
-    </div>
-  `;
-}
-
-function createPresetsContent() {
-  return `
-    <div style="max-height: 400px; overflow-y: auto;">
-      <div class="preset-group-label">Instagram</div>
-      <button class="preset-item" onclick="selectPixelPreset('social','IG Square',1080,1080)">Square 1080×1080</button>
-      <button class="preset-item" onclick="selectPixelPreset('social','IG Portrait',1080,1350)">Portrait 1080×1350</button>
-      <button class="preset-item" onclick="selectPixelPreset('social','IG Story',1080,1920)">Story 1080×1920</button>
-      <div class="preset-group-label">Facebook</div>
-      <button class="preset-item" onclick="selectPixelPreset('social','FB Link',1200,630)">Link 1200×630</button>
-      <button class="preset-item" onclick="selectPixelPreset('social','FB Cover',820,312)">Cover 820×312</button>
-      <div class="preset-group-label">YouTube</div>
-      <button class="preset-item" onclick="selectPixelPreset('social','YT Thumb',1280,720)">Thumbnail 1280×720</button>
-      <button class="preset-item" onclick="selectPixelPreset('social','YT Frame',1920,1080)">Frame 1920×1080</button>
-      <div class="preset-group-label">Document</div>
-      <button class="preset-item" onclick="selectPixelPreset('docs','A4',2480,3508)">A4 2480×3508</button>
-      <button class="preset-item" onclick="selectPixelPreset('docs','Letter',2550,3300)">Letter 2550×3300</button>
-    </div>
-  `;
-}
-
-function createExportContent() {
-  return `
-    <div class="export-size-inputs">
-      <input type="text" id="export-w" class="size-input" inputmode="numeric" oninput="onExportInput('w', this.value)">
-      <span class="size-separator">×</span>
-      <input type="text" id="export-h" class="size-input" inputmode="numeric" oninput="onExportInput('h', this.value)">
-    </div>
-    <div id="scale-indicator-export" class="scale-indicator" style="margin-bottom: 12px; text-align: center;"></div>
-    <button class="export-action" onclick="exportImage()">
-      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M6 10l4 4 4-4M10 3v11"/>
-        <path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2"/>
-      </svg>
-      <span>Export</span>
-    </button>
-  `;
-}
-
-function createBottomBar() {
-  return `
-    <div class="bottom-bar">
-      <div class="tool-group">
-        <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M4.5 7h6a3.5 3.5 0 110 7h-2"/>
-            <path d="M7 4.5L4.5 7 7 9.5"/>
-          </svg>
-        </button>
-        <button class="tool-btn" onclick="redo()" title="Redo (Ctrl+Shift+Z / Ctrl+Y)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-             <path d="M11.5 7h-6a3.5 3.5 0 100 7h2"/>
-             <path d="M9 4.5L11.5 7 9 9.5"/>
-          </svg>
-        </button>
-      </div>
-
-      <div class="tool-separator"></div>
-
-      <button class="tool-btn" onclick="toggleGrid()" title="Grid (G)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M5.5 2v12M10.5 2v12M2 5.5h12M2 10.5h12"/>
-        </svg>
-      </button>
-
-      <div class="zoom-group">
-        <button class="tool-btn" onclick="zoomToFit()" title="Fit (F)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="10" height="10" rx="1"/>
-            <path d="M6 6l4 4M10 6l-4 4"/>
-          </svg>
-        </button>
-        <input type="range" id="zoom-slider" min="0" max="1000" step="1">
-        <div id="zoom-indicator">100%</div>
-        <button class="tool-btn" onclick="zoomToActual()" title="100% (1)">1:1</button>
-      </div>
-
-      <div class="tool-separator"></div>
-
-      <button class="tool-btn" onclick="resetCrop()" title="Reset (R)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M2 8a6 6 0 0112 0M14 8a6 6 0 01-12 0"/>
-          <path d="M2 4v4h4M14 12v-4h-4"/>
-        </svg>
-      </button>
-
-      <button class="tool-btn" onclick="newImage()" title="New (N)">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="2" y="2" width="12" height="12" rx="2"/>
-          <path d="M8 5v6M5 8h6"/>
-        </svg>
-      </button>
-
-      <div class="tool-separator"></div>
-
-      <button class="tool-btn" onclick="toggleShortcuts()" title="Shortcuts (?)">
-        <span style="font-family: var(--font-mono); font-weight: 700;">?</span>
-      </button>
-    </div>
-  `;
-}
-
-function createShortcutsOverlay() {
-  return `
-    <div id="shortcuts-overlay" class="shortcuts-overlay hidden" onclick="toggleShortcuts()">
-      <div class="shortcuts-modal" onclick="event.stopPropagation()">
-        <div class="shortcuts-header">
-          <h3>Keyboard Shortcuts</h3>
-          <button class="close-btn" onclick="toggleShortcuts()">×</button>
-        </div>
-        <div class="shortcuts-list">
-          <div class="shortcut-row"><span class="key-desc">Undo</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Redo</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Redo (Alt)</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Y</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Toggle Grid</span> <div class="keys"><kbd>G</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Zoom to Fit</span> <div class="keys"><kbd>F</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Zoom 1:1</span> <div class="keys"><kbd>1</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Reset Crop</span> <div class="keys"><kbd>R</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">New Image</span> <div class="keys"><kbd>N</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Export</span> <div class="keys"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></div></div>
-          <div class="shortcut-row"><span class="key-desc">Close Panels</span> <div class="keys"><kbd>Esc</kbd></div></div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function toggleShortcuts() {
-  const overlay = document.getElementById("shortcuts-overlay");
-  if (overlay) overlay.classList.toggle("hidden");
-}
-
-function togglePanel(panelName) {
-  const panel = document.getElementById(`panel-${panelName}`);
-  const icon = document.getElementById(`icon-${panelName}`);
-
-  if (activePanel === panelName) {
-    panel.classList.remove("visible");
-    icon.classList.remove("active");
-    activePanel = null;
-  } else {
-    if (activePanel) {
-      document
-        .getElementById(`panel-${activePanel}`)
-        .classList.remove("visible");
-      document.getElementById(`icon-${activePanel}`).classList.remove("active");
-    }
-    panel.classList.add("visible");
-    icon.classList.add("active");
-    activePanel = panelName;
-  }
-}
-
-function bindCropView() {
-  document
-    .querySelectorAll("[data-handle]")
-    .forEach((h) => (h.onmousedown = (e) => startDrag(e, h.dataset.handle)));
-
-  const area = document.getElementById("crop-area");
-  assert(area, "bindCropView: missing crop area");
-  area.onmousedown = (e) => startDrag(e, "move");
-
-  const viewport = document.getElementById("viewport");
-  viewport.onwheel = handleWheelZoom;
-  viewport.onmousedown = (e) => {
-    if (e.target === viewport) startDrag(e, "pan-image");
-  };
-
-  document.getElementById("zoom-slider").oninput = handleSliderZoom;
-  document.addEventListener("keydown", handleKeyboard);
-
-  syncExportInputsToCrop();
-  updateAspectUI();
-  updateCropInfoUI();
-}
-
-function setAspectFromButton(ratio) {
-  if (!state.image) return;
-  clearAllSelections();
-  if (ratio === 0) {
-    setMode(MODE.NONE);
-    state.aspectRatio = 0;
-  } else {
-    setMode(MODE.ASPECT_RATIO);
-    state.aspectRatio = ratio;
-    applyAspectToCrop(ratio);
-  }
-  updateAspectUI();
-  requestRender();
-  scheduleCommit();
-  pushHistory("Aspect Change");
-}
-
-function handleKeyboard(e) {
-  if (e.target.tagName === "INPUT") return;
-
-  const cmd = e.metaKey || e.ctrlKey;
-
-  // Undo / Redo Logic
-  if (cmd) {
-    if (e.key === "z") {
-      e.preventDefault();
-      if (e.shiftKey) redo();
-      else undo();
-      return;
-    }
-    if (e.key === "y") {
-      e.preventDefault();
-      redo();
-      return;
-    }
-  }
-
-  // Shortcuts Overlay
-  if (e.key === "?") {
-    toggleShortcuts();
-    return;
-  }
-
-  if (e.key === "g") toggleGrid();
-  else if (e.key === "r") resetCrop();
-  else if (e.key === "f") zoomToFit();
-  else if (e.key === "1") zoomToActual();
-  else if (e.key === "n") newImage();
-  else if (e.key === "Escape") {
-    const shortcuts = document.getElementById("shortcuts-overlay");
-    if (shortcuts && !shortcuts.classList.contains("hidden")) {
-      toggleShortcuts();
-    } else if (activePanel) {
-      togglePanel(activePanel);
-    }
-  } else if (cmd && e.key === "Enter") exportImage();
-}
-
-function onViewportResize() {
-  if (!state.image) return;
-  if (state.drag || state.committing) return;
-  recalculateLayout();
-  requestRender();
-}
-
-function handleWheelZoom(e) {
-  e.preventDefault();
-  const delta = e.deltaY > 0 ? -1 : 1;
-  const zoomFactor = 1.1;
-  const newZoom = state.zoom * (delta > 0 ? zoomFactor : 1 / zoomFactor);
-  const rect = e.currentTarget.getBoundingClientRect();
-  const focalPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  setZoom(newZoom, focalPoint);
-}
-
-function handleSliderZoom(e) {
-  const sliderValue = e.target.value / 1000;
-  const logMin = Math.log(MIN_ZOOM);
-  const logMax = Math.log(MAX_ZOOM);
-  const newZoom = Math.exp(logMin + (logMax - logMin) * sliderValue);
-  const focalPoint = { x: state.viewport.w / 2, y: state.viewport.h / 2 };
-  setZoom(newZoom, focalPoint);
-}
-
-function updateCropInfoUI() {
-  const srcInfo = document.getElementById("source-info");
-  const cropInfo = document.getElementById("crop-info");
-
-  if (!state.image) return;
-
-  const srcW = state.fullImage?.naturalWidth || state.image.naturalWidth;
-  const srcH = state.fullImage?.naturalHeight || state.image.naturalHeight;
-  if (srcInfo) srcInfo.textContent = `${srcW}×${srcH}`;
-
-  const { w, h } = state.crop;
-  const actualW = Math.round(w);
-  const actualH = Math.round(h);
-  if (cropInfo) cropInfo.textContent = `${actualW}×${actualH}`;
-
-  updateScaleIndicator();
-}
-
-function updateScaleIndicator() {
-  const scaleExport = document.getElementById("scale-indicator-export");
-
-  const { w, h } = state.crop;
-  const actualW = Math.round(w);
-  const actualH = Math.round(h);
-
-  const exportW =
-    parseInt(document.getElementById("export-w")?.value) || actualW;
-  const exportH =
-    parseInt(document.getElementById("export-h")?.value) || actualH;
-
-  const scaleX = exportW / actualW;
-  const scaleY = exportH / actualH;
-  const scale = Math.min(scaleX, scaleY);
-
-  let text, className;
-  if (Math.abs(scale - 1) < 0.1) {
-    text = "1:1";
-    className = "ok";
-  } else if (scale < 1) {
-    text = `↓${Math.round((1 - scale) * 100)}%`;
-    className = "ok";
-  } else if (scale <= 1.5) {
-    text = `↑${Math.round((scale - 1) * 100)}%`;
-    className = "ok";
-  } else if (scale <= 2) {
-    text = `↑${Math.round((scale - 1) * 100)}%`;
-    className = "warn";
-  } else {
-    text = `↑${Math.round((scale - 1) * 100)}%`;
-    className = "bad";
-  }
-
-  if (scaleExport) {
-    scaleExport.textContent = text;
-    scaleExport.className = `scale-indicator ${className}`;
-  }
-}
-
-function updateAspectUI() {
-  document.querySelectorAll(".aspect-pill[data-aspect]").forEach((btn) => {
-    const ratio = parseFloat(btn.dataset.aspect);
-    const isActive =
-      (state.mode === MODE.NONE && ratio === 0) ||
-      (state.mode === MODE.ASPECT_RATIO &&
-        Math.abs(state.aspectRatio - ratio) < EPSILON);
-    btn.classList.toggle("active", isActive);
-  });
-  updatePresetTriggers();
-}
-
-function renderFrame() {
-  if (!state.image) return;
-  const canvas = document.getElementById("canvas");
-  const overlay = document.getElementById("crop-overlay");
-  if (!canvas || !overlay) return;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const img = state.image;
-  if (
-    canvas.width !== img.naturalWidth ||
-    canvas.height !== img.naturalHeight
-  ) {
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.drawImage(img, 0, 0);
-  }
-
-  const { tx, ty } = state.imageTransform;
-  const { x, y, w, h } = state.crop;
-  const currentScale = state.baseScale * state.zoom;
-
-  const screenPixelsPerImagePixel = currentScale / state.previewScale;
-  canvas.style.imageRendering =
-    screenPixelsPerImagePixel > 2.5 ? "pixelated" : "auto";
-
-  canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${currentScale})`;
-  canvas.className = state.committing ? "canvas-committing" : "";
-  overlay.className = state.committing
-    ? "crop-overlay committing"
-    : state.drag
-      ? "crop-overlay dragging"
-      : "crop-overlay";
-
-  const previewX = x / state.previewScale;
-  const previewY = y / state.previewScale;
-  const previewW = w / state.previewScale;
-  const previewH = h / state.previewScale;
-  const cropLeft = tx + previewX * currentScale;
-  const cropTop = ty + previewY * currentScale;
-  const cropW = previewW * currentScale;
-  const cropH = previewH * currentScale;
-
-  overlay.style.left = `${cropLeft}px`;
-  overlay.style.top = `${cropTop}px`;
-  overlay.style.width = `${cropW}px`;
-  overlay.style.height = `${cropH}px`;
-
-  const gridCanvas = document.getElementById("grid-canvas");
-  if (gridCanvas) renderGrid(gridCanvas, cropW, cropH);
-
-  updateCropInfoUI();
-  updatePresetTriggers();
-  syncExportInputsToCrop();
-  updateZoomUI();
-}
-
-function updateZoomUI() {
-  const indicator = document.getElementById("zoom-indicator");
-  const slider = document.getElementById("zoom-slider");
-  if (!indicator || !slider) return;
-
-  const screenPixelsPerImagePixel =
-    (state.baseScale * state.zoom) / state.previewScale;
-  indicator.textContent = `${(screenPixelsPerImagePixel * 100).toFixed(0)}%`;
-
-  const logMin = Math.log(MIN_ZOOM);
-  const logMax = Math.log(MAX_ZOOM);
-  const currentVal = Math.log(state.zoom);
-  const sliderPos = ((currentVal - logMin) / (logMax - logMin)) * 1000;
-  if (document.activeElement !== slider) slider.value = sliderPos;
-}
-
-function renderGrid(gridCanvas, cropW, cropH) {
-  if (!state.showGrid) {
-    gridCanvas.style.display = "none";
-    return;
-  }
-  gridCanvas.style.display = "block";
-  if (gridCanvas.width !== cropW || gridCanvas.height !== cropH) {
-    gridCanvas.width = cropW;
-    gridCanvas.height = cropH;
-  }
-  const gctx = gridCanvas.getContext("2d");
-  if (!gctx) return;
-  gctx.clearRect(0, 0, cropW, cropH);
-  gctx.strokeStyle = "rgba(255,255,255,0.25)";
-  gctx.lineWidth = 1;
-  const x1 = cropW / 3,
-    x2 = (cropW * 2) / 3,
-    y1 = cropH / 3,
-    y2 = (cropH * 2) / 3;
-  gctx.beginPath();
-  gctx.moveTo(x1, 0);
-  gctx.lineTo(x1, cropH);
-  gctx.moveTo(x2, 0);
-  gctx.lineTo(x2, cropH);
-  gctx.moveTo(0, y1);
-  gctx.lineTo(cropW, y1);
-  gctx.moveTo(0, y2);
-  gctx.lineTo(cropW, y2);
-  gctx.stroke();
-}
-
-function toggleGrid() {
-  state.showGrid = !state.showGrid;
-  requestRender();
-}
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}</file>
+
+<file path="warden.toml">
+# warden.toml
+[rules]
+max_file_tokens = 2000
+max_cyclomatic_complexity = 5
+max_nesting_depth = 2
+max_function_args = 5
+max_function_words = 5
+ignore_naming_on = ["tests", "spec"]
+
+# Commands are auto-detected if not specified here.
+# To override:
+# [commands]
+# check = "npx.cmd @biomejs/biome check src/"
 </file>
 
-<file path="viewAspect.js">
-"use strict";
-
-function setAspectFromBar(ratio) {
-  assert(typeof ratio === "number", "setAspectFromBar: ratio must be number");
-
-  if (!state.image && ratio !== 0) {
-    console.warn("setAspectFromBar: no image loaded");
-    return;
-  }
-
-  clearAllSelections();
-
-  if (!ratio || ratio <= 0) {
-    setMode(MODE.NONE);
-    state.aspectRatio = 0;
-  } else {
-    validateAspectRatio(ratio);
-    setMode(MODE.ASPECT_RATIO);
-    state.aspectRatio = ratio;
-    applyAspectToCrop(ratio);
-  }
-
-  requestRender();
-  scheduleCommit();
-
-  // --- HISTORY PUSH ---
-  pushHistory("Aspect Change");
-}
-
-function createAspectButtons() {
-  const ratios = [
-    { label: "Free", value: 0 },
-    { label: "1:1", value: 1 },
-    { label: "4:3", value: 4 / 3 },
-    { label: "3:2", value: 3 / 2 },
-    { label: "5:4", value: 5 / 4 },
-    { label: "16:9", value: 16 / 9 },
-    { label: "9:16", value: 9 / 16 },
-    { label: "21:9", value: 21 / 9 },
-  ];
-
-  const current = state.mode === MODE.ASPECT_RATIO ? state.aspectRatio : 0;
-
-  return ratios
-    .map((r) => {
-      const isActive =
-        (r.value === 0 && state.mode === MODE.NONE) ||
-        (state.mode === MODE.ASPECT_RATIO &&
-          r.value > 0 &&
-          Math.abs(current - r.value) < EPSILON);
-      const cls = isActive ? "aspect-btn active" : "aspect-btn";
-      return `<button class="${cls}" onclick="setAspectFromBar(${r.value})">${r.label}</button>`;
-    })
-    .join("");
-}
-
-function createCustomAspectControl() {
-  const isWaiting = state.customAspectActive;
-  const hasCustom =
-    state.mode === MODE.ASPECT_RATIO &&
-    !state.customAspectActive &&
-    state.customAspectLabel !== "Custom";
-
-  const label = hasCustom ? state.customAspectLabel : "Custom";
-
-  const btnClsParts = ["aspect-btn"];
-  if (state.mode === MODE.ASPECT_RATIO && (isWaiting || hasCustom)) {
-    btnClsParts.push("active");
-  }
-  if (isWaiting) {
-    btnClsParts.push("pulsing");
-  }
-  const btnCls = btnClsParts.join(" ");
-
-  const inputs = isWaiting
-    ? `
-      <input id="custom-aspect-w" class="custom-aspect-input" type="number" min="1"
-             placeholder="W" value="${state.customAspectW || ""}">
-      <span>:</span>
-      <input id="custom-aspect-h" class="custom-aspect-input" type="number" min="1"
-             placeholder="H" value="${state.customAspectH || ""}">
-      <button class="btn" onclick="applyCustomAspectInline()">✔ Apply</button>
-    `
-    : "";
-
-  return `
-    <div class="custom-aspect-inline">
-      <button class="${btnCls}" onclick="toggleCustomAspectActive()">${label}</button>
-      ${inputs}
-    </div>
-  `;
-}
-
-function toggleCustomAspectActive() {
-  if (!state.customAspectActive) {
-    clearAllSelections();
-    state.customAspectActive = true;
-    setMode(MODE.ASPECT_RATIO);
-  } else {
-    state.customAspectActive = false;
-    setMode(MODE.NONE);
-    state.aspectRatio = 0;
-  }
-  requestRender();
-}
-
-function applyCustomAspectInline() {
-  if (!state.image) {
-    console.warn("applyCustomAspectInline: no image loaded");
-    return;
-  }
-
-  const wEl = document.getElementById("custom-aspect-w");
-  const hEl = document.getElementById("custom-aspect-h");
-
-  if (!wEl || !hEl) {
-    console.error("applyCustomAspectInline: input elements not found");
-    return;
-  }
-
-  const w = parseInt(wEl.value, 10);
-  const h = parseInt(hEl.value, 10);
-
-  if (!(w > 0 && h > 0)) {
-    console.warn("applyCustomAspectInline: invalid dimensions");
-    return;
-  }
-
-  const reduced = reduceRatio(w, h);
-  if (!(reduced.w > 0 && reduced.h > 0)) {
-    console.error("applyCustomAspectInline: reduceRatio failed");
-    return;
-  }
-
-  const ratio = reduced.w / reduced.h;
-  validateAspectRatio(ratio);
-
-  clearAllSelections();
-  setMode(MODE.ASPECT_RATIO);
-  state.customAspectActive = false;
-  state.aspectRatio = ratio;
-  state.customAspectW = String(reduced.w);
-  state.customAspectH = String(reduced.h);
-  state.customAspectLabel = `Custom ${reduced.w}:${reduced.h}`;
-
-  applyAspectToCrop(ratio);
-  requestRender();
-  scheduleCommit();
-
-  // --- HISTORY PUSH ---
-  pushHistory("Custom Aspect");
-}
-</file>
-
-<file path="viewPresets.js">
-"use strict";
-
-function createTopCenterPresets() {
-  return `
-    <div class="top-center" onclick="event.stopPropagation()">
-      <div class="preset-label">Presets</div>
-
-      <div class="preset-dropdown">
-        <div
-          id="preset-social-trigger"
-          class="preset-trigger btn"
-          onclick="togglePresetMenu(event, 'social')">
-          <span>${state.presetLabels.social}</span><span>▾</span>
-        </div>
-        <div id="preset-social-menu" class="preset-menu">
-          ${createSocialPresets()}
-        </div>
-      </div>
-
-      <div class="preset-dropdown">
-        <div
-          id="preset-docs-trigger"
-          class="preset-trigger btn"
-          onclick="togglePresetMenu(event, 'docs')">
-          <span>${state.presetLabels.docs}</span><span>▾</span>
-        </div>
-        <div id="preset-docs-menu" class="preset-menu">
-          ${createDocsPresets()}
-        </div>
-      </div>
-
-      <div class="preset-dropdown">
-        <div
-          id="preset-custom-trigger"
-          class="preset-trigger btn ${state.customPixelActive ? "active pulsing" : ""}"
-          onclick="toggleCustomPixelActive(event)">
-          <span>${state.presetLabels["custom-pixel"]}</span><span>▾</span>
-        </div>
-        <div id="preset-custom-pixel-menu"
-             class="preset-menu ${state.customPixelActive ? "visible" : ""}">
-          ${createCustomPixelControl()}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function createSocialPresets() {
-  return `
-    <div class="preset-group-label">Instagram</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','IG Square 1080×1080',1080,1080)">Square 1:1 1080×1080</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','IG Portrait 1080×1350',1080,1350)">Portrait 4:5 1080×1350</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','IG Landscape 1080×566',1080,566)">Landscape 1080×566</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','IG Story 1080×1920',1080,1920)">Story/Reel 1080×1920</div>
-
-    <div class="preset-group-label">Facebook</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','FB Link 1200×630',1200,630)">Link 1200×630</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','FB Post 1080×1080',1080,1080)">Post 1080×1080</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','FB Cover 820×312',820,312)">Cover 820×312</div>
-
-    <div class="preset-group-label">X / Twitter</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','X Post 1600×900',1600,900)">Post 1600×900</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','X Header 1500×500',1500,500)">Header 1500×500</div>
-
-    <div class="preset-group-label">YouTube</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','YT Thumb 1280×720',1280,720)">Thumbnail 1280×720</div>
-    <div class="preset-item" onclick="selectPixelPreset('social','YT Frame 1920×1080',1920,1080)">Frame 1920×1080</div>
-  `;
-}
-
-function createDocsPresets() {
-  return `
-    <div class="preset-group-label">Print @300dpi</div>
-    <div class="preset-item" onclick="selectPixelPreset('docs','A4 2480×3508',2480,3508)">A4 2480×3508</div>
-    <div class="preset-item" onclick="selectPixelPreset('docs','Letter 2550×3300',2550,3300)">Letter 2550×3300</div>
-    <div class="preset-item" onclick="selectPixelPreset('docs','A5 1748×2480',1748,2480)">A5 1748×2480</div>
-  `;
-}
-
-function createCustomPixelControl() {
-  return `
-    <div class="preset-group-label">Custom Output Size</div>
-    <div class="custom-pixel-inline">
-      <input id="custom-pixel-w" type="number" min="1" placeholder="W"
-             class="custom-aspect-input"
-             value="${state.customPixelW || ""}">
-      <span>×</span>
-      <input id="custom-pixel-h" type="number" min="1" placeholder="H"
-             class="custom-aspect-input"
-             value="${state.customPixelH || ""}">
-      <button class="btn" onclick="applyCustomPixelPreset()">✔ Apply</button>
-    </div>
-  `;
-}
-
-function togglePresetMenu(ev, key) {
-  assert(typeof key === "string", "togglePresetMenu: key must be string");
-  ev.stopPropagation();
-  const menu = document.getElementById(`preset-${key}-menu`);
-  if (!menu) return;
-  const visible = menu.classList.contains("visible");
-  closeAllPresetMenus();
-  if (!visible) menu.classList.add("visible");
-}
-
-function toggleCustomPixelActive(ev) {
-  ev.stopPropagation();
-  closeAllPresetMenus();
-  state.customPixelActive = !state.customPixelActive;
-  if (!state.customPixelActive) {
-    const menu = document.getElementById("preset-custom-pixel-menu");
-    if (menu) menu.classList.remove("visible");
-  }
-  requestRender();
-}
-
-function closeAllPresetMenus() {
-  document
-    .querySelectorAll(".preset-menu.visible")
-    .forEach((m) => m.classList.remove("visible"));
-}
-
-function selectPixelPreset(key, label, w, h) {
-  if (!state.image) return;
-  assert(typeof key === "string", "selectPixelPreset: key must be string");
-  assert(typeof label === "string", "selectPixelPreset: label must be string");
-  validatePixelDimension(w);
-  validatePixelDimension(h);
-
-  closeAllPresetMenus();
-  clearAllSelections();
-  setMode(MODE.PIXEL_PRESET);
-  markPresetActive(key, label);
-
-  const ratio = w / h;
-  validateAspectRatio(ratio);
-  state.aspectRatio = ratio;
-  applyAspectToCrop(ratio);
-
-  state.exportW = String(w);
-  state.exportH = String(h);
-
-  requestRender();
-  scheduleCommit();
-
-  // --- HISTORY PUSH ---
-  pushHistory(`Preset: ${label}`);
-}
-
-function applyCustomPixelPreset() {
-  if (!state.image) return;
-  const wEl = document.getElementById("custom-pixel-w");
-  const hEl = document.getElementById("custom-pixel-h");
-  if (!wEl || !hEl) return;
-  const w = parseInt(wEl.value, 10);
-  const h = parseInt(hEl.value, 10);
-  if (!(w > 0 && h > 0)) return;
-
-  validatePixelDimension(w);
-  validatePixelDimension(h);
-
-  closeAllPresetMenus();
-  state.customPixelActive = false;
-
-  clearAllSelections();
-  setMode(MODE.CUSTOM_PIXEL);
-  state.customPixelW = String(w);
-  state.customPixelH = String(h);
-  markPresetActive("custom-pixel", `Custom ${w}×${h}`);
-
-  state.exportW = String(w);
-  state.exportH = String(h);
-
-  const ratio = w / h;
-  validateAspectRatio(ratio);
-  state.aspectRatio = ratio;
-  applyAspectToCrop(ratio);
-
-  requestRender();
-  scheduleCommit();
-
-  // --- HISTORY PUSH ---
-  pushHistory(`Custom Pixel: ${w}x${h}`);
-}
-
-function updatePresetTriggers() {
-  const map = {
-    social: "preset-social-trigger",
-    docs: "preset-docs-trigger",
-    "custom-pixel": "preset-custom-trigger",
-  };
-  Object.entries(map).forEach(([key, id]) => {
-    const trigger = document.getElementById(id);
-    if (!trigger) return;
-    const span = trigger.querySelector("span");
-    if (span) span.textContent = state.presetLabels[key];
-    if (state.activePresetKey === key) trigger.classList.add("active");
-    else trigger.classList.remove("active");
-  });
-
-  const customMenu = document.getElementById("preset-custom-pixel-menu");
-  if (customMenu) {
-    if (state.customPixelActive) customMenu.classList.add("visible");
-    else customMenu.classList.remove("visible");
-  }
-}
-</file>
-
-
-═══════════════════════════════════════════════════════════════════
-END CODEBASE
-═══════════════════════════════════════════════════════════════════
-
-WARDEN CONSTRAINTS:
-□ Files < 2000 tokens
-□ Complexity ≤ 10
-□ Nesting ≤ 4
-□ Args ≤ 5
-□ No .unwrap()
-□ Use <delivery> + <file> tags

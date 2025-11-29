@@ -11,8 +11,8 @@ export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 32.0;
 
 export enum Mode {
-  NONE = "none",
-  ASPECT_RATIO = "aspect-ratio",
-  PIXEL_PRESET = "pixel-preset",
-  CUSTOM_PIXEL = "custom-pixel",
+	NONE = "none",
+	ASPECT_RATIO = "aspect-ratio",
+	PIXEL_PRESET = "pixel-preset",
+	CUSTOM_PIXEL = "custom-pixel",
 }
